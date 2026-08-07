@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">薄荷记账</string>
+    <string name="notification_listener_label">自动记账（通知监听）</string>
+    <string name="accessibility_label">薄荷记账</string>
+
+    <!-- 无障碍服务说明（系统设置中展示） -->
+    <string name="accessibility_description">用于在支付类应用（支付宝、微信、银行）的通知不可用或被关闭时，读取屏幕上的交易信息，帮助薄荷记账自动记录收入与支出。薄荷记账仅读取白名单内支付应用页面上的金额文本，不会读取您的聊天、照片等隐私内容。</string>
+
+    <!-- 主界面 -->
+    <string name="tab_dashboard">首页</string>
+    <string name="tab_statistics">报表</string>
+    <string name="tab_settings">设置</string>
+    <string name="dashboard_title">薄荷记账</string>
+    <string name="dashboard_subtitle">今天也要好好记账呀</string>
+    <string name="month_expense">本月支出</string>
+    <string name="month_income">本月收入</string>
+    <string name="month_balance">本月结余</string>
+    <string name="recent_bills">最近账单</string>
+    <string name="view_all">查看全部</string>
+    <string name="manual_add">手动记账</string>
+    <string name="empty_bills_title">还没有账单哦</string>
+    <string name="empty_bills_desc">先去买杯奶茶吧，喝完回来就能看到自动记录的账单啦</string>
+    <string name="empty_tip">做一笔真实的支付宝/微信支付，账单会自动出现在这里</string>
+
+    <!-- 手动记账 -->
+    <string name="add_bill_title">手动记账</string>
+    <string name="add_bill_amount_hint">金额</string>
+    <string name="add_bill_note_hint">备注（选填）</string>
+    <string name="add_bill_save">保存</string>
+    <string name="add_bill_income">收入</string>
+    <string name="add_bill_expense">支出</string>
+    <string name="add_bill_category">分类</string>
+    <string name="invalid_amount">请输入正确的金额</string>
+    <string name="saved_success">已保存</string>
+
+    <!-- 账单详情 -->
+    <string name="bill_detail_title">账单详情</string>
+    <string name="bill_edit_category">修改分类</string>
+    <string name="bill_edit_note">备注</string>
+    <string name="bill_delete">删除这笔账单</string>
+    <string name="bill_delete_confirm">确定删除这笔账单吗？删除后不可恢复。</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
+    <string name="delete">删除</string>
+
+    <!-- 报表 -->
+    <string name="statistics_title">报表统计</string>
+    <string name="stat_income_expense_ratio">收支占比</string>
+    <string name="stat_category_breakdown">分类占比</string>
+    <string name="stat_big_expense">大额支出 TOP10</string>
+    <string name="stat_big_income">大额收入 TOP10</string>
+    <string name="stat_monthly_trend">月度趋势（近12个月）</string>
+    <string name="stat_no_data">本月暂无数据</string>
+    <string name="stat_expense">支出</string>
+    <string name="stat_income">收入</string>
+    <string name="stat_balance">结余</string>
+    <string name="stat_period_week">周</string>
+    <string name="stat_period_month">月</string>
+    <string name="stat_period_year">年</string>
+    <string name="stat_week_trend">本周每日收支</string>
+    <string name="stat_month_trend">本月每日收支</string>
+    <string name="stat_year_trend">全年月度收支</string>
+    <string name="stat_no_data_week">本周暂无数据</string>
+    <string name="stat_no_data_year">今年暂无数据</string>
+    <string name="stat_prev_week">上一周</string>
+    <string name="stat_next_week">下一周</string>
+    <string name="stat_prev_month">上一月</string>
+    <string name="stat_next_month">下一月</string>
+    <string name="stat_prev_year">上一年</string>
+    <string name="stat_next_year">下一年</string>
+
+    <!-- 设置 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_auto_record">自动记账</string>
+    <string name="settings_auto_record_desc">关闭后，支付通知将不再自动记录</string>
+    <string name="settings_permissions">权限与保活</string>
+    <string name="settings_notification_access">通知使用权</string>
+    <string name="settings_notification_access_desc">支付宝/微信/银行的支付通知通过它自动记录</string>
+    <string name="settings_notification_access_enabled">已开启</string>
+    <string name="settings_notification_access_disabled">未开启，去开启</string>
+    <string name="settings_accessibility">无障碍服务</string>
+    <string name="settings_accessibility_desc">通知被关闭时，通过它读取屏幕兜底记录</string>
+    <string name="settings_accessibility_enabled">已开启</string>
+    <string name="settings_accessibility_disabled">未开启，去开启</string>
+    <string name="settings_battery_whitelist">电池优化白名单</string>
+    <string name="settings_battery_whitelist_desc">避免系统休眠时清理记账服务</string>
+    <string name="settings_battery_whitelist_add">加入白名单</string>
+    <string name="settings_battery_whitelist_done">已加入</string>
+    <string name="settings_rom_autostart">自启动设置</string>
+    <string name="settings_rom_autostart_desc">在系统设置中允许薄荷记账自启动（不同机型路径不同）</string>
+    <string name="settings_rom_autostart_open">去设置</string>
+    <string name="settings_rom_autostart_not_supported">当前机型暂不支持一键跳转，请到系统设置中手动允许自启动</string>
+    <string name="settings_channels">记账渠道</string>
+    <string name="settings_channels_desc">按渠道开关自动记账</string>
+    <string name="settings_sms">短信记账</string>
+    <string name="settings_sms_desc">收到含金额的银行/支付类短信时自动记账</string>
+    <string name="settings_sms_permission">需授权读取短信</string>
+    <string name="settings_sms_permission_grant">去授权</string>
+    <string name="settings_sms_permission_desc">短信记账需要「短信」权限以监听收到的短信。仅用于解析金额与商户信息，不上传任何内容。</string>
+    <string name="settings_data">数据管理</string>
+    <string name="settings_clear_all">清空全部账单</string>
+    <string name="settings_clear_confirm">确定清空全部账单数据吗？此操作不可恢复。</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_about_desc">薄荷记账 · 通知监听 + 无障碍兜底自动记账\n保活能力受系统限制，无法保证 100% 存活</string>
+    <string name="settings_service_status">记账服务运行中</string>
+    <string name="settings_service_status_stopped">记账服务未运行，点击拉起</string>
+    <string name="settings_keepalive_guide">保活说明</string>
+    <string name="settings_transfer_hint">转账记录提示</string>
+    <string name="settings_transfer_hint_desc">收到微信转账但通知无金额时，提醒您打开详情页自动记账（每日最多 1 条）</string>
+    <string name="settings_accessibility_usage">无障碍使用说明</string>
+    <string name="settings_accessibility_usage_desc">开启无障碍后：在微信中打开转账/红包详情页，停留 1-2 秒即可自动记账；仅滚动聊天记录不会触发。</string>
+
+    <!-- 引导页 -->
+    <string name="onboarding_welcome_title">你好呀，我是小薄荷 🌿</string>
+    <string name="onboarding_welcome_desc">我会在你用支付宝、微信、银行 App 付款时，悄悄帮你把账单记好，不用再手动记了。</string>
+    <string name="onboarding_step1_title">开启通知使用权</string>
+    <string name="onboarding_step1_desc">这是记账的小耳朵：支付宝/微信/银行的支付通知，都会通过它被自动记录。</string>
+    <string name="onboarding_step2_title">开启无障碍服务（推荐）</string>
+    <string name="onboarding_step2_desc">兜底方案：即使某天通知被关，也能从支付页面读取金额。开启后可随时关闭。</string>
+    <string name="onboarding_step3_title">允许后台运行</string>
+    <string name="onboarding_step3_desc">把薄荷记账加入电池白名单并允许自启动，账单记录会更可靠。</string>
+    <string name="onboarding_start">开始记账</string>
+    <string name="onboarding_skip">跳过，先进去看看</string>
+    <string name="onboarding_status_ok">已完成</string>
+    <string name="onboarding_status_pending">未完成</string>
+
+    <!-- 通知 -->
+    <string name="notification_service_channel">记账服务</string>
+    <string name="notification_guide_channel">记账提醒</string>
+    <string name="notification_fgs_title">薄荷记账守护中</string>
+    <string name="notification_fgs_text">正在帮你自动记录账单，收付通知来了会及时入账</string>
+    <string name="notification_listener_off_title">自动记账需要重新授权</string>
+    <string name="notification_listener_off_text">通知使用权被关闭了，点按我去重新开启，账单才能继续自动记录</string>
+    <string name="notification_transfer_hint_title">发现一笔转账未记录</string>
+    <string name="notification_transfer_hint_text">微信转账通知不包含金额，点开微信里的转账详情页停留 1-2 秒，即可自动记账</string>
+
+    <!-- 补备注提醒 -->
+    <string name="notification_note_remind_title">已自动记账 ¥%1$s</string>
+    <string name="notification_note_remind_text">点击为这笔账单补充备注</string>
+    <string name="dashboard_note_remind_banner">%1$d 笔账单待补充备注 ›</string>
+    <string name="bill_needs_note_badge">补备注</string>
+
+    <!-- 导入/新增结果弹窗共用 -->
+    <string name="capture_summary_new_prefix">本次新增：</string>
+    <string name="capture_summary_delete">删除</string>
+
+    <!-- 通用 -->
+    <string name="unknown_category">未分类</string>
+    <string name="yuan">元</string>
+
+    <!-- 账单筛选与全部账单列表 -->
+    <string name="all_bills_title">全部账单</string>
+    <string name="all_bills_total">共 %1$d 笔</string>
+    <string name="all_bills_empty_title">没有符合条件的账单</string>
+    <string name="all_bills_empty_desc">试试调整筛选条件</string>
+    <string name="all_bills_loaded_all">已全部加载</string>
+    <string name="back">返回</string>
+    <string name="filter_scope_recent">最近</string>
+    <string name="filter_scope_all">全部</string>
+    <string name="filter_type_expense">支出</string>
+    <string name="filter_type_income">收入</string>
+    <string name="filter_type_all">全部</string>
+    <string name="filter_channel_wechat">微信</string>
+    <string name="filter_channel_alipay">支付宝</string>
+    <string name="filter_channel_bank">银行卡</string>
+    <string name="filter_channel_sms">短信</string>
+    <string name="filter_channel_manual">手动记账</string>
+    <string name="filter_channel_all">全部</string>
+    <string name="filter_sort_time_desc">时间最新</string>
+    <string name="filter_sort_amount_desc">金额从高到低</string>
+    <string name="filter_sort_amount_asc">金额从低到高</string>
+    <string name="time_range_title">选择时间范围</string>
+    <string name="time_range_none">不限</string>
+    <string name="time_range_today">天</string>
+    <string name="time_range_week">周</string>
+    <string name="time_range_month">月</string>
+    <string name="time_range_year">年</string>
+    <string name="time_range_custom">自定义范围</string>
+    <string name="time_range_selected">已选：%1$s</string>
+    <string name="time_range_none_hint_home">恢复默认「近3天」范围</string>
+    <string name="time_range_none_hint_all">不限时间，展示全部账单</string>
+    <string name="time_range_all_time">全部时间</string>
+    <string name="time_range_recent3">近3天</string>
+
+    <!-- 桌面小组件 -->
+    <string name="widget_description">展示今日收支，今日无记录时展示本周收支</string>
+
+    <!-- 分类管理 -->
+    <string name="settings_category_manage">分类管理</string>
+    <string name="settings_category_manage_desc">添加、改名、删除分类，预置分类不可删除</string>
+    <string name="category_manage_title">分类管理</string>
+    <string name="category_add">新建分类</string>
+    <string name="category_edit">编辑分类</string>
+    <string name="category_name_hint">分类名称</string>
+    <string name="category_icon_title">选择图标</string>
+    <string name="category_keywords_hint">关键词（逗号分隔，用于自动归类）</string>
+    <string name="category_preset">预置</string>
+    <string name="category_delete">删除分类</string>
+    <string name="category_delete_confirm">删除后，该分类下的账单将自动归入同类型「其他支出/其他收入」，确定删除吗？</string>
+    <string name="category_name_required">请输入分类名称</string>
+    <string name="category_quick_add">＋ 新建</string>
+
+    <!-- 存款目标 -->
+    <string name="stat_tab_income_expense">收支</string>
+    <string name="stat_tab_savings">存款</string>
+    <string name="savings_goal">存款目标</string>
+    <string name="savings_goal_desc">目标总存款 + 每月目标存款，首页与报表展示存款进度</string>
+    <string name="savings_goal_set">小目标</string>
+    <string name="savings_goal_set_desc">设置后首页展示存款进度，报表按月对比是否达标</string>
+    <string name="savings_goal_edit">编辑存款目标</string>
+    <string name="savings_total">目标总存款</string>
+    <string name="savings_total_required">请输入目标总存款</string>
+    <string name="savings_initial">当前存款</string>
+    <string name="savings_initial_hint">选填，用于初始化：存款进度从该金额开始累计</string>
+    <string name="savings_monthly">每月目标存款</string>
+    <string name="savings_monthly_hint">选填：报表按月对比是否达标</string>
+    <string name="savings_progress">存款进度</string>
+    <string name="savings_current">已存 ¥%1$s</string>
+    <string name="savings_target">目标 ¥%1$s</string>
+    <string name="savings_remain">还差 ¥%1$s</string>
+    <string name="savings_exceed">已超出 ¥%1$s</string>
+    <string name="savings_met">达标</string>
+    <string name="savings_missed">未达标</string>
+    <string name="savings_net">净结余</string>
+    <string name="savings_cumulative">累计存款</string>
+    <string name="savings_edit_action">设置/编辑目标</string>
+    <string name="savings_empty_title">还没有存款记录</string>
+    <string name="savings_empty_desc">记下第一笔账单后，这里会按月展示存款情况</string>
+    <string name="savings_summary_goal">目标 ¥%1$s</string>
+    <string name="savings_summary_monthly">每月目标 ¥%1$s</string>
+
+    <!-- 隐私安全 -->
+    <string name="settings_security">隐私安全</string>
+    <string name="settings_app_lock">应用锁</string>
+    <string name="settings_app_lock_desc">开启后，启动 App 与从后台返回时需指纹/人脸/设备密码验证</string>
+    <string name="app_lock_title">薄荷记账已锁定</string>
+    <string name="app_lock_desc">验证身份后查看你的账单</string>
+    <string name="app_lock_unlock">验证身份</string>
+    <string name="app_lock_not_available">当前设备未设置指纹/人脸或锁屏密码，请先在系统设置中添加</string>
+
+    <!-- 数据迁移（蓝牙导入导出） -->
+    <string name="settings_bt_send">蓝牙发送</string>
+    <string name="settings_bt_send_desc">把本机全部账单数据发送到另一台设备</string>
+    <string name="settings_bt_receive">蓝牙接收</string>
+    <string name="settings_bt_receive_desc">从另一台设备接收并导入账单数据</string>
+    <string name="bt_send_title">蓝牙发送账单数据</string>
+    <string name="bt_receive_title">蓝牙接收账单数据</string>
+    <string name="bt_permission_needed">需要蓝牙权限才能传输数据</string>
+    <string name="bt_enable_bluetooth">请先开启蓝牙</string>
+    <string name="bt_open_settings">去系统蓝牙设置</string>
+    <string name="bt_paired_devices">已配对设备</string>
+    <string name="bt_no_devices">未找到已配对设备\n请先在系统蓝牙设置中与另一台设备配对</string>
+    <string name="bt_unpaired_device">该设备未配对，请先在系统蓝牙设置中完成配对</string>
+    <string name="bt_preparing">正在准备数据…</string>
+    <string name="bt_waiting">等待对方设备发送数据…</string>
+    <string name="bt_sending">正在发送…</string>
+    <string name="bt_receiving">正在接收…</string>
+    <string name="bt_send_complete">数据已发送，对方设备接收后可导入</string>
+    <string name="bt_receive_complete">数据接收完成</string>
+    <string name="bt_close">完成</string>
+    <string name="bt_retry">重试</string>
+    <string name="import_confirm_title">确认导入数据？</string>
+    <string name="import_confirm_message">导入将清空本机现有的全部账单数据（此操作不可恢复），确定继续吗？</string>
+    <string name="import_success">导入成功，共 %1$d 笔账单</string>
+
+    <!-- 微信账单 Excel 导入 -->
+    <string name="settings_bill_import">导入微信账单</string>
+    <string name="settings_bill_import_desc">从微信导出的账单 Excel 文件导入记录</string>
+    <string name="bill_import_title">导入微信账单 Excel</string>
+    <string name="bill_import_desc">选择微信「下载账单」导出的 Excel 文件，预览确认后导入，重复导入会自动跳过已存在的记录。</string>
+    <string name="bill_pick_file">选择 Excel 文件</string>
+    <string name="bill_picking">请选择微信导出的账单 Excel 文件…</string>
+    <string name="bill_parsing">正在解析账单记录…</string>
+    <string name="bill_preview_stats">识别 %1$d 笔 · 支出 %2$d · 收入 %3$d · 中性 %4$d</string>
+    <string name="bill_preview_unrecognized">另有 %1$d 行未能识别或不计收支，已自动忽略</string>
+    <string name="bill_preview_empty">没有可导入的账单记录</string>
+    <string name="bill_confirm_import">确认导入（%1$d 笔）</string>
+    <string name="bill_importing">正在导入 %1$d/%2$d…</string>
+    <string name="bill_import_success">导入完成，新增 %1$d 笔，跳过 %2$d 笔重复记录</string>
+    <string name="bill_import_dup_desc">发现 %1$d 笔记录已存在（另有 %2$d 笔新记录），如何导入？</string>
+    <string name="bill_import_dup_replace">覆盖原记录（以新文件内容替换）</string>
+    <string name="bill_import_dup_skip">忽略跳过（仅导入新记录）</string>
+    <string name="bill_import_error_unknown">Excel 解析失败，请确认文件为微信导出的账单 Excel</string>
+    <string name="bill_neutral_badge">中性</string>
+    <string name="bill_close">关闭</string>
+
+    <!-- 支付宝账单 CSV 导入 -->
+    <string name="settings_alipay_import">导入支付宝账单</string>
+    <string name="settings_alipay_import_desc">从支付宝导出的账单 CSV 文件导入记录</string>
+    <string name="bill_import_title_alipay">导入支付宝账单 CSV</string>
+    <string name="bill_import_desc_alipay">选择支付宝「导出账单」得到的 CSV 文件，预览确认后导入，重复导入会自动跳过已存在的记录。</string>
+    <string name="bill_pick_file_alipay">选择 CSV 文件</string>
+    <string name="bill_picking_alipay">请选择支付宝导出的账单 CSV 文件…</string>
+</resources>

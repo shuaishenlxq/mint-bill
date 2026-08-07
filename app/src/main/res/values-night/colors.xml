@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="window_bg">#12181B</color>
+
+    <!-- 桌面小组件 · 暗色（薄荷清新·毛玻璃卡） -->
+    <color name="widget_bg">#1E2A2D</color>
+    <color name="widget_container">#24363A</color>
+    <color name="widget_text_primary">#E8F4F2</color>
+    <color name="widget_text_secondary">#9FB8B5</color>
+    <color name="widget_income">#7FDCD5</color>
+    <color name="widget_expense">#FF9FB0</color>
+    <color name="widget_balance">#4ECDC4</color>
+</resources>

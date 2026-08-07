@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 常驻通知小图标：小嫩芽 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,3 C17,8.5 20,13 20,17 C20,19.8 17.5,21.5 12,21.5 C6.5,21.5 4,19.8 4,17 C4,13 7,8.5 12,3 Z" />
+    <path
+        android:fillColor="#2BA89E"
+        android:pathData="M12,6.5 L9.5,15 L12,12.6 L14.5,15 Z" />
+</vector>

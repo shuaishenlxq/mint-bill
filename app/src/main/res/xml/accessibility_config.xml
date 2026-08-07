@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowContentChanged|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_description"
+    android:notificationTimeout="300"
+    android:packageNames="com.eg.android.AlipayGphone,com.tencent.mm,com.tencent.wepay,com.icbc,com.chinamworld.main,com.android.bankabc,com.bankcomm.Bankcomm,com.cmbchina.ccd.pluto.cmbActivity,cmb.pb,com.spdbccc.app,com.pingan.pinganwallet,com.unionpay,com.eg.android.AlipayGphoneRC,com.alipay.sdk" />

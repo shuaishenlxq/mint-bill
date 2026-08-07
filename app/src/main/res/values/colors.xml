@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动窗口背景（避免白屏闪烁） -->
+    <color name="window_bg">#F7FCFC</color>
+    <color name="ic_launcher_background">#4ECDC4</color>
+
+    <!-- 桌面小组件 · 明色（薄荷清新·毛玻璃卡） -->
+    <color name="widget_bg">#FFFFFF</color>
+    <color name="widget_container">#E3F7F5</color>
+    <color name="widget_text_primary">#1C3A38</color>
+    <color name="widget_text_secondary">#6B8F8C</color>
+    <color name="widget_income">#2BA89E</color>
+    <color name="widget_expense">#E66A80</color>
+    <color name="widget_balance">#1C7A72</color>
+</resources>

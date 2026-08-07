@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    双保险：allowBackup=false 总开关 + 此处全量排除。
+    数据库经 SQLCipher 加密、passphrase 由 Keystore 托管且不参与备份，
+    即使未来有人放开 allowBackup，备份里也只有无法解密的密文。
+    注意：device-transfer 的 domain 必须用 device_* 前缀（root/file/database/sharedpref/external 仅 cloud-backup 可用）。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+        <exclude domain="device_file" path="." />
+    </device-transfer>
+</data-extraction-rules>
