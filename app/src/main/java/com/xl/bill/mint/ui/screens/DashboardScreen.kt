@@ -28,13 +28,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xl.bill.mint.R
+import com.xl.bill.mint.ui.theme.ExpenseRose
 import com.xl.bill.mint.ui.theme.GoalMet
+import com.xl.bill.mint.ui.theme.IncomeMint
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
@@ -55,6 +58,7 @@ fun DashboardScreen(
     onNotePromptConsumed: () -> Unit = {}
 ) {
     val overview by viewModel.overview.collectAsStateWithLifecycle()
+    val todayOverview by viewModel.todayOverview.collectAsStateWithLifecycle()
     val recent by viewModel.recent.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val unnoted by viewModel.unnoted.collectAsStateWithLifecycle()
@@ -178,6 +182,11 @@ fun DashboardScreen(
                 overview = overview,
                 monthLabel = monthLabel
             )
+        }
+
+        // 当日收支小报表：今日支出 / 今日收入 / 今日结余
+        item {
+            TodayOverviewCard(overview = todayOverview)
         }
 
         // 存款进度卡：未设置目标 → 引导态；已设置 → 环形进度（点击可编辑）
@@ -386,6 +395,70 @@ fun DashboardScreen(
     }
 }
 
+/** 当日收支小报表：今日支出 / 今日收入 / 今日结余 三列（GlassCard，样式对齐首页现有卡片） */
+@Composable
+private fun TodayOverviewCard(overview: com.xl.bill.mint.util.StatisticsCalculator.MonthOverview) {
+    _root_ide_package_.com.xl.bill.mint.ui.components.GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.today_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TodayStatCell(
+                    label = stringResource(R.string.today_expense),
+                    value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(overview.expense),
+                    color = ExpenseRose,
+                    modifier = Modifier.weight(1f)
+                )
+                TodayStatCell(
+                    label = stringResource(R.string.today_income),
+                    value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(overview.income),
+                    color = IncomeMint,
+                    modifier = Modifier.weight(1f)
+                )
+                TodayStatCell(
+                    label = stringResource(R.string.today_balance),
+                    value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(overview.balance),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+/** 当日收支单列：label(labelSmall) + value(titleMedium 着色)，列内水平居中 */
+@Composable
+private fun TodayStatCell(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            color = color,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
 /** 存款进度卡：环形进度 + 已存/目标/还差（新拟物风格，点击编辑目标） */
 @Composable
 private fun SavingsProgressCard(
@@ -447,7 +520,7 @@ private fun SavingsProgressCard(
                 trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
             ) {
                 Text(
-                    text = "${(summary.progress * 100).toInt()}%",
+                    text = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.percent(summary.progress),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onBackground
                 )

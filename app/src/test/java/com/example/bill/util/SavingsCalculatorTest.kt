@@ -150,8 +150,66 @@ class SavingsCalculatorTest {
             initial = 10_000,
             goalTotal = 50_000
         )!!
-        assertEquals(-10_000, summary.current)
-        assertEquals(0f, summary.progress, 0f) // 负值钳制为 0
+        assertEquals(0, summary.current) // 存款不展示为负：钳 0
+        assertEquals(0f, summary.progress, 0f)
+    }
+
+    @Test
+    fun summary_filtersByBaseTime() {
+        val jan = YearMonth.of(2026, 1)
+        val mar = YearMonth.of(2026, 3)
+        val base = ts(mar)
+        // 基准前：1 月支出 30_000；基准后：3 月收入 50_000 → 只累计基准后净结余
+        val summary = SavingsCalculator.summary(
+            listOf(
+                tx(ts(jan), 30_000, TransactionEntity.TYPE_EXPENSE),
+                tx(ts(mar), 50_000, TransactionEntity.TYPE_INCOME)
+            ),
+            initial = 100_000,
+            goalTotal = 200_000,
+            baseTime = base
+        )!!
+        assertEquals(50_000, summary.cumulativeBalance)
+        assertEquals(150_000, summary.current)
+    }
+
+    @Test
+    fun summary_baseTimeNull_keepsLegacyBehavior() {
+        val jan = YearMonth.of(2026, 1)
+        val mar = YearMonth.of(2026, 3)
+        val summary = SavingsCalculator.summary(
+            listOf(
+                tx(ts(jan), 30_000, TransactionEntity.TYPE_EXPENSE),
+                tx(ts(mar), 50_000, TransactionEntity.TYPE_INCOME)
+            ),
+            initial = 100_000,
+            goalTotal = 200_000
+        )!!
+        // 未设基准：全量累计（-30000 + 50000 = 20000）
+        assertEquals(20_000, summary.cumulativeBalance)
+        assertEquals(120_000, summary.current)
+    }
+
+    @Test
+    fun savingsMonthSeries_filtersByBaseTime() {
+        val jan = YearMonth.of(2026, 1)
+        val feb = YearMonth.of(2026, 2)
+        val mar = YearMonth.of(2026, 3)
+        // 基准 = 2 月 1 日 → 1 月账单不参与，累计从 2 月起算
+        val result = SavingsCalculator.savingsMonthSeries(
+            listOf(
+                tx(ts(jan), 30_000, TransactionEntity.TYPE_EXPENSE),
+                tx(ts(feb), 10_000, TransactionEntity.TYPE_INCOME),
+                tx(ts(mar), 4_000, TransactionEntity.TYPE_EXPENSE)
+            ),
+            initial = 100_000,
+            monthlyGoal = null,
+            baseTime = ts(feb)
+        )
+        assertEquals(2, result.size)
+        assertEquals(feb, result[0].month)
+        assertEquals(110_000, result[0].cumulative) // 100000 + 10000
+        assertEquals(106_000, result[1].cumulative) // 110000 - 4000
     }
 
     @Test

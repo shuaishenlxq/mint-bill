@@ -15,18 +15,21 @@ class BillSortTest {
         assertEquals(0, BillSort.TIME_DESC.sortMode)
         assertEquals(1, BillSort.AMOUNT_ASC.sortMode)
         assertEquals(2, BillSort.AMOUNT_DESC.sortMode)
+        assertEquals(3, BillSort.TIME_ASC.sortMode)
     }
 
     @Test
     fun sortOptions_orderAndValues() {
-        val opts = sortOptions("时间最新", "金额从高到低", "金额从低到高")
-        assertEquals(3, opts.size)
+        val opts = sortOptions("时间最新", "时间最早", "金额从高到低", "金额从低到高")
+        assertEquals(4, opts.size)
         assertEquals("时间最新", opts[0].label)
         assertEquals(BillSort.TIME_DESC, opts[0].value)
-        assertEquals("金额从高到低", opts[1].label)
-        assertEquals(BillSort.AMOUNT_DESC, opts[1].value)
-        assertEquals("金额从低到高", opts[2].label)
-        assertEquals(BillSort.AMOUNT_ASC, opts[2].value)
+        assertEquals("时间最早", opts[1].label)
+        assertEquals(BillSort.TIME_ASC, opts[1].value)
+        assertEquals("金额从高到低", opts[2].label)
+        assertEquals(BillSort.AMOUNT_DESC, opts[2].value)
+        assertEquals("金额从低到高", opts[3].label)
+        assertEquals(BillSort.AMOUNT_ASC, opts[3].value)
     }
 
     @Test

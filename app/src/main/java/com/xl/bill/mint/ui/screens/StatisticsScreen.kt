@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -80,6 +81,7 @@ fun StatisticsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.StatisticsViewMode
     val savings by viewModel.savings.collectAsStateWithLifecycle()
     val savingsGoal by viewModel.savingsGoal.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val dailyList by viewModel.dailyList.collectAsStateWithLifecycle()
 
     var showSavingsGoal by remember { mutableStateOf(false) }
 
@@ -89,6 +91,9 @@ fun StatisticsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.StatisticsViewMode
     LaunchedEffect(viewModel) {
         viewModel.noteSaved.collect { showSaveSuccess = true }
     }
+
+    // 日视图点击 → 当日账单列表弹窗
+    var daySheet by remember { mutableStateOf<com.xl.bill.mint.util.StatisticsCalculator.DayBalance?>(null) }
 
     // 每次进入报表页（重新组合）自动定位到当前周/月/年；
     // 页内手动翻页不会触发重组，因此不会被拉回。
@@ -109,7 +114,7 @@ fun StatisticsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.StatisticsViewMode
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 周期切换
+                // 周期切换（日 / 周 / 月 / 年）
                 item {
                     PeriodTabs(
                         selected = state.period,
@@ -126,57 +131,73 @@ fun StatisticsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.StatisticsViewMode
                     )
                 }
 
-                // 收支概览三卡
-                item {
-                    OverviewRow(state.overview)
-                }
+                if (state.period == _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY) {
+                    // 日视图：按月列出每日收支小报表
+                    if (dailyList.isEmpty()) {
+                        item {
+                            _root_ide_package_.com.xl.bill.mint.ui.components.EmptyState(
+                                title = stringResource(R.string.stat_daily_empty_title),
+                                description = stringResource(R.string.stat_daily_empty_desc)
+                            )
+                        }
+                    } else {
+                        items(dailyList, key = { it.date.toString() }) { day ->
+                            DailyCell(day, onClick = { daySheet = day })
+                        }
+                    }
+                } else {
+                    // 收支概览三卡
+                    item {
+                        OverviewRow(state.overview)
+                    }
 
-                // 收支占比
-                item {
-                    RatioCard(state.overview)
-                }
+                    // 收支占比
+                    item {
+                        RatioCard(state.overview)
+                    }
 
-                // 支出分类占比
-                item {
-                    CategoryBreakdownCard(
-                        title = stringResource(R.string.stat_category_breakdown),
-                        data = state.expenseBreakdown,
-                        isExpense = true
-                    )
-                }
+                    // 支出分类占比
+                    item {
+                        CategoryBreakdownCard(
+                            title = stringResource(R.string.stat_category_breakdown),
+                            data = state.expenseBreakdown,
+                            isExpense = true
+                        )
+                    }
 
-                // 收入分类占比
-                item {
-                    CategoryBreakdownCard(
-                        title = stringResource(R.string.stat_income),
-                        data = state.incomeBreakdown,
-                        isExpense = false
-                    )
-                }
+                    // 收入分类占比
+                    item {
+                        CategoryBreakdownCard(
+                            title = stringResource(R.string.stat_income),
+                            data = state.incomeBreakdown,
+                            isExpense = false
+                        )
+                    }
 
-                // 大额支出 TOP10
-                item {
-                    TopListCard(
-                        title = stringResource(R.string.stat_big_expense),
-                        data = state.topExpense,
-                        isExpense = true,
-                        onItemClick = { selectedTx = it }
-                    )
-                }
+                    // 大额支出 TOP10
+                    item {
+                        TopListCard(
+                            title = stringResource(R.string.stat_big_expense),
+                            data = state.topExpense,
+                            isExpense = true,
+                            onItemClick = { selectedTx = it }
+                        )
+                    }
 
-                // 大额收入 TOP10
-                item {
-                    TopListCard(
-                        title = stringResource(R.string.stat_big_income),
-                        data = state.topIncome,
-                        isExpense = false,
-                        onItemClick = { selectedTx = it }
-                    )
-                }
+                    // 大额收入 TOP10
+                    item {
+                        TopListCard(
+                            title = stringResource(R.string.stat_big_income),
+                            data = state.topIncome,
+                            isExpense = false,
+                            onItemClick = { selectedTx = it }
+                        )
+                    }
 
-                // 周期趋势
-                item {
-                    TrendCard(period = state.period, trend = state.trend)
+                    // 周期趋势
+                    item {
+                        TrendCard(period = state.period, trend = state.trend)
+                    }
                 }
             }
         }
@@ -212,6 +233,15 @@ fun StatisticsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.StatisticsViewMode
             onSaveSuccessDismiss = { showSaveSuccess = false }
         )
     }
+
+    // 日视图点击 → 当日账单列表弹窗（内嵌详情编辑）
+    daySheet?.let { day ->
+        DayTransactionsSheet(
+            day = day,
+            categories = categories,
+            onDismiss = { daySheet = null }
+        )
+    }
 }
 
 /** 顶层「收支 | 存款」Tab（样式与 PeriodTabs 一致） */
@@ -241,6 +271,76 @@ private fun SavingsTopTabs(selected: Boolean, onSelect: (Boolean) -> Unit) {
                 }
             )
         }
+    }
+}
+
+/** 单日收支小报表：日期（含星期）+ 支出 / 收入 / 结余 三列（居中，结余正绿负红）；点击打开当日账单列表 */
+@Composable
+private fun DailyCell(
+    day: com.xl.bill.mint.util.StatisticsCalculator.DayBalance,
+    onClick: () -> Unit
+) {
+    _root_ide_package_.com.xl.bill.mint.ui.components.GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            Text(
+                text = day.date.format(DateTimeFormatter.ofPattern("M月d日 E", java.util.Locale.CHINESE)),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DailyStatCell(
+                    label = stringResource(R.string.stat_expense),
+                    value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(day.expense),
+                    color = Color(0xFFFF8A9E),
+                    modifier = Modifier.weight(1f)
+                )
+                DailyStatCell(
+                    label = stringResource(R.string.stat_income),
+                    value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(day.income),
+                    color = Color(0xFF4ECDC4),
+                    modifier = Modifier.weight(1f)
+                )
+                DailyStatCell(
+                    label = stringResource(R.string.stat_balance),
+                    value = signedYuan(day.balance),
+                    color = if (day.balance >= 0) Color(0xFF4ECDC4) else Color(0xFFFF8A9E),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+/** 单日统计列：label(labelSmall) + value(titleMedium 着色)，列内水平居中 */
+@Composable
+private fun DailyStatCell(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            color = color,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }
 
@@ -339,6 +439,12 @@ private fun SavingsSummaryCard(stats: com.xl.bill.mint.ui.viewmodel.SavingsStati
                     color = if (summary.achieved) GoalMet else MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                     drawStopIndicator = {}
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = com.xl.bill.mint.util.MoneyFormatter.percent(summary.progress),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (stats.monthlyGoal != null) {
                     Spacer(Modifier.height(8.dp))
@@ -465,10 +571,11 @@ private fun signedYuan(balance: Long): String {
     return "$sign¥${_root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(abs(balance))}"
 }
 
-/** 周 / 月 / 年周期切换 Tab */
+/** 日 / 周 / 月 / 年周期切换 Tab */
 @Composable
 private fun PeriodTabs(selected: com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod, onSelect: (com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod) -> Unit) {
     val tabs = listOf(
+        _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY to stringResource(R.string.stat_period_day),
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK to stringResource(R.string.stat_period_week),
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH to stringResource(R.string.stat_period_month),
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR to stringResource(R.string.stat_period_year)
@@ -499,11 +606,13 @@ private fun PeriodTabs(selected: com.xl.bill.mint.util.StatisticsCalculator.Repo
 private fun PeriodNavigator(state: com.xl.bill.mint.ui.viewmodel.StatisticsState, onPrev: () -> Unit, onNext: () -> Unit) {
     val title = remember(state.period, state.anchor) { periodTitle(state.period, state.anchor) }
     val prevDesc = when (state.period) {
+        _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY -> stringResource(R.string.stat_prev_month)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> stringResource(R.string.stat_prev_week)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH -> stringResource(R.string.stat_prev_month)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR -> stringResource(R.string.stat_prev_year)
     }
     val nextDesc = when (state.period) {
+        _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY -> stringResource(R.string.stat_next_month)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> stringResource(R.string.stat_next_week)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH -> stringResource(R.string.stat_next_month)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR -> stringResource(R.string.stat_next_year)
@@ -530,8 +639,10 @@ private fun PeriodNavigator(state: com.xl.bill.mint.ui.viewmodel.StatisticsState
     }
 }
 
-/** 周期标题：周=日期区间、月=yyyy年M月、年=yyyy年 */
+/** 周期标题：日=yyyy年M月（按月浏览每日列表）、周=日期区间、月=yyyy年M月、年=yyyy年 */
 private fun periodTitle(period: com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod, anchor: LocalDate): String = when (period) {
+    _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY ->
+        anchor.format(DateTimeFormatter.ofPattern("yyyy年M月"))
     _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> {
         val end = anchor.plusDays(6)
         if (anchor.year == end.year) {
@@ -864,11 +975,13 @@ private fun TopRow(
 @Composable
 private fun TrendCard(period: com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod, trend: List<com.xl.bill.mint.util.StatisticsCalculator.MonthPoint>) {
     val title = when (period) {
+        _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY -> stringResource(R.string.stat_month_trend)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> stringResource(R.string.stat_week_trend)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH -> stringResource(R.string.stat_month_trend)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR -> stringResource(R.string.stat_year_trend)
     }
     val noData = when (period) {
+        _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY -> stringResource(R.string.stat_no_data)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> stringResource(R.string.stat_no_data_week)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH -> stringResource(R.string.stat_no_data)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR -> stringResource(R.string.stat_no_data_year)

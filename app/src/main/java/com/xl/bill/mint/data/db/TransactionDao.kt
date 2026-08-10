@@ -6,6 +6,9 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
+/** 收支合计投影（分）：income=收入合计、expense=支出合计（type 0=支出/1=收入） */
+data class SumResult(val income: Long, val expense: Long)
+
 @Dao
 interface TransactionDao {
 
@@ -67,9 +70,9 @@ interface TransactionDao {
     suspend fun getByRange(start: Long, end: Long): List<TransactionEntity>
 
     /**
-     * 多条件交集分页查询（全部账单页）。start/end/type/channel 传 null 表示不限制。
+     * 多条件交集分页查询（全部账单页）。start/end/type/channel/categoryId 传 null 表示不限制。
      *
-     * @param sortMode 排序方式：0=时间倒序（默认），1=金额升序，2=金额降序。
+     * @param sortMode 排序方式：0=时间倒序（默认），1=金额升序，2=金额降序，3=时间正序。
      *                 SQL 用 CASE 表达式实现（Room 的 @Query 是编译期常量，不能直接拼 ORDER BY 方向），
      *                 id DESC 兜底保证分页跨页顺序稳定。
      */
@@ -79,9 +82,11 @@ interface TransactionDao {
             "AND (:end IS NULL OR occurredAt < :end) " +
             "AND (:type IS NULL OR type = :type) " +
             "AND (:channel IS NULL OR channel = :channel) " +
+            "AND (:categoryId IS NULL OR categoryId = :categoryId) " +
             "ORDER BY CASE :sortMode " +
             "WHEN 1 THEN amount " +
             "WHEN 2 THEN -amount " +
+            "WHEN 3 THEN occurredAt " +
             "ELSE -occurredAt END ASC, id DESC " +
             "LIMIT :limit OFFSET :offset"
     )
@@ -90,6 +95,7 @@ interface TransactionDao {
         end: Long?,
         type: Int?,
         channel: String?,
+        categoryId: Long?,
         sortMode: Int,
         limit: Int,
         offset: Int
@@ -101,9 +107,24 @@ interface TransactionDao {
             "WHERE (:start IS NULL OR occurredAt >= :start) " +
             "AND (:end IS NULL OR occurredAt < :end) " +
             "AND (:type IS NULL OR type = :type) " +
-            "AND (:channel IS NULL OR channel = :channel)"
+            "AND (:channel IS NULL OR channel = :channel) " +
+            "AND (:categoryId IS NULL OR categoryId = :categoryId)"
     )
-    suspend fun countFiltered(start: Long?, end: Long?, type: Int?, channel: String?): Int
+    suspend fun countFiltered(start: Long?, end: Long?, type: Int?, channel: String?, categoryId: Long?): Int
+
+    /** 多条件交集收支合计（全部账单页统计栏，与 countFiltered 同 WHERE 口径） */
+    @Query(
+        "SELECT " +
+            "COALESCE(SUM(CASE WHEN type = 1 THEN amount ELSE 0 END), 0) AS income, " +
+            "COALESCE(SUM(CASE WHEN type = 0 THEN amount ELSE 0 END), 0) AS expense " +
+            "FROM transactions " +
+            "WHERE (:start IS NULL OR occurredAt >= :start) " +
+            "AND (:end IS NULL OR occurredAt < :end) " +
+            "AND (:type IS NULL OR type = :type) " +
+            "AND (:channel IS NULL OR channel = :channel) " +
+            "AND (:categoryId IS NULL OR categoryId = :categoryId)"
+    )
+    suspend fun sumFiltered(start: Long?, end: Long?, type: Int?, channel: String?, categoryId: Long?): SumResult
 
     /** 多条件交集响应式列表（首页，LIMIT 20）。表级失效重发，参数变化需外层 flatMapLatest。 */
     @Query(

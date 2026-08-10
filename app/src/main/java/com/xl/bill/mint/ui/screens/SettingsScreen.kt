@@ -18,7 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Accessibility
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BatteryFull
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.Delete
@@ -70,6 +72,9 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
     val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
     val channelEnabled by viewModel.channelEnabled.collectAsStateWithLifecycle()
     val savingsGoal by viewModel.savingsGoal.collectAsStateWithLifecycle()
+    val categoryDefaults by viewModel.categoryDefaults.collectAsStateWithLifecycle()
+    val categories by _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.appDatabase.categoryDao().observeAll()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     // 从系统设置返回后自动刷新权限状态
     var refreshKey by remember { mutableIntStateOf(0) }
@@ -100,6 +105,8 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
     var showAlipayImportSheet by remember { mutableStateOf(false) }
     var showCategoryManage by remember { mutableStateOf(false) }
     var showSavingsGoal by remember { mutableStateOf(false) }
+    var showDefaultCategory by remember { mutableStateOf(false) }
+    var showAdBlock by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -331,6 +338,79 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
                                 )
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // 智能记账：默认分类 + 广告过滤
+        item {
+            _root_ide_package_.com.xl.bill.mint.ui.components.GlassCard {
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 6.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDefaultCategory = true }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_default_category),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = defaultCategorySubtitle(categoryDefaults, categories),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "›",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    DividerLine()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAdBlock = true }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Block,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_ad_block),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_ad_block_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "›",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
@@ -707,6 +787,49 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
             }
         )
     }
+
+    if (showDefaultCategory) {
+        DefaultCategorySheet(
+            defaults = categoryDefaults,
+            onSelect = { type, id -> viewModel.setDefaultCategory(type, id) },
+            onDismiss = { showDefaultCategory = false }
+        )
+    }
+
+    if (showAdBlock) {
+        AdBlockSheet(
+            onDismiss = { showAdBlock = false }
+        )
+    }
+}
+
+/**
+ * 默认分类摘要：显示支出/收入当前生效分类名（配置优先，未配置显示初始默认）。
+ */
+@Composable
+private fun defaultCategorySubtitle(
+    defaults: com.xl.bill.mint.parser.Defaults,
+    categories: List<com.xl.bill.mint.data.db.CategoryEntity>
+): String {
+    fun effectiveName(type: Int, configuredId: Long?, initialName: String): String {
+        val configured = configuredId?.let { id ->
+            categories.firstOrNull { it.id == id && it.type == type }?.name
+        }
+        return configured
+            ?: categories.firstOrNull { it.type == type && it.name == initialName }?.name
+            ?: "—"
+    }
+    val expense = effectiveName(
+        com.xl.bill.mint.data.db.CategoryEntity.TYPE_EXPENSE,
+        defaults.expenseId,
+        com.xl.bill.mint.parser.CategoryMatcher.INITIAL_DEFAULT_EXPENSE_NAME
+    )
+    val income = effectiveName(
+        com.xl.bill.mint.data.db.CategoryEntity.TYPE_INCOME,
+        defaults.incomeId,
+        com.xl.bill.mint.parser.CategoryMatcher.DEFAULT_INCOME_NAME
+    )
+    return stringResource(R.string.default_category_subtitle, expense, income)
 }
 
 /** 存款目标摘要：未设置显示引导文案；已设置显示「目标 ¥x · 每月目标 ¥y」 */

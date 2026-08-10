@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * 全部账单列表页：多条件交集（时间范围 × 收支类型 × 支付渠道）+ 滚动加载分页。
+ * 全部账单列表页：多条件交集（时间范围 × 收支类型 × 支付渠道 × 分类）+ 滚动加载分页。
  *
  * 筛选状态由 Screen 持有（rememberSaveable），通过 [refresh] 传入；
  * VM 只做分页控制器与账单操作（与现有 VM 无参构造风格一致）。
@@ -24,6 +24,8 @@ class AllBillsViewModel : ViewModel() {
     data class UiState(
         val items: List<com.xl.bill.mint.data.db.TransactionEntity> = emptyList(),
         val total: Int = 0,
+        val income: Long = 0L,   // 当前筛选范围收入合计（分）
+        val expense: Long = 0L,  // 当前筛选范围支出合计（分）
         val loading: Boolean = false,
         val loadingMore: Boolean = false,
         val hasMore: Boolean = false
@@ -56,11 +58,13 @@ class AllBillsViewModel : ViewModel() {
             try {
                 val start = f.range?.first
                 val end = f.range?.second
-                val page = repo.getFiltered(start, end, f.type, f.channel, f.sort?.sortMode ?: 0,
+                val page = repo.getFiltered(start, end, f.type, f.channel, f.categoryId, f.sort?.sortMode ?: 0,
                     _root_ide_package_.com.xl.bill.mint.ui.filter.PAGE_SIZE, 0)
-                val total = repo.countFiltered(start, end, f.type, f.channel)
+                val total = repo.countFiltered(start, end, f.type, f.channel, f.categoryId)
+                val sums = repo.sumFiltered(start, end, f.type, f.channel, f.categoryId)
                 _state.value = _state.value.copy(
-                    items = page, total = total, loading = false, hasMore = page.size < total
+                    items = page, total = total, income = sums.income, expense = sums.expense,
+                    loading = false, hasMore = page.size < total
                 )
             } catch (e: Exception) {
                 _state.value = _state.value.copy(loading = false)
@@ -79,7 +83,7 @@ class AllBillsViewModel : ViewModel() {
                 val start = filters.range?.first
                 val end = filters.range?.second
                 val page = repo.getFiltered(
-                    start, end, filters.type, filters.channel, filters.sort?.sortMode ?: 0,
+                    start, end, filters.type, filters.channel, filters.categoryId, filters.sort?.sortMode ?: 0,
                     _root_ide_package_.com.xl.bill.mint.ui.filter.PAGE_SIZE, s.items.size
                 )
                 _state.value = _state.value.copy(

@@ -22,6 +22,15 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // 体积优化：仅打包 arm64-v8a（minSdk 31 设备强制 64 位，无兼容性损失）
+        // SQLCipher native 4 ABI ≈ 13.5M → 单 ABI 3.6M
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+
+        // 体积优化：语言资源裁剪，只保留中英文（依赖库带入 110+ 语言目录）
+        resourceConfigurations += setOf("zh-rCN", "zh-rTW", "zh-rHK", "en")
     }
 
     buildTypes {
@@ -48,6 +57,11 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        // 体积优化：native .so 走 deflate 压缩（默认 Stored 0% 压缩，libsqlcipher 3.6M 可压至 ~2.1M）
+        // 代价：安装时解压到 /data，安装后占用略增
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }

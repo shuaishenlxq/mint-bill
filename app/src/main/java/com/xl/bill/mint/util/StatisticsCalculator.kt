@@ -16,8 +16,8 @@ import java.time.temporal.TemporalAdjusters
  */
 object StatisticsCalculator {
 
-    /** 报表周期 */
-    enum class ReportPeriod { WEEK, MONTH, YEAR }
+    /** 报表周期：日（按月浏览每日列表）/ 周 / 月 / 年 */
+    enum class ReportPeriod { DAY, WEEK, MONTH, YEAR }
 
     data class MonthOverview(val income: Long, val expense: Long) {
         val balance: Long get() = income - expense
@@ -33,6 +33,15 @@ object StatisticsCalculator {
 
     /** 趋势点：label 可为 "M月"（月度）或 "M/d"（每日） */
     data class MonthPoint(val label: String, val income: Long, val expense: Long)
+
+    /** 单日收支聚合（日视图列表项）：date=日期、income/expense 合计（分）、balance=净结余 */
+    data class DayBalance(
+        val date: LocalDate,
+        val income: Long,
+        val expense: Long
+    ) {
+        val balance: Long get() = income - expense
+    }
 
     // ==================== 周期区间 ====================
 
@@ -69,8 +78,9 @@ object StatisticsCalculator {
         return start to end
     }
 
-    /** 按周期解析区间：anchor 在周视图为周内任意一天、月视图为当月任意一天、年视图为当年任意一天 */
+    /** 按周期解析区间：DAY=整月（每日列表）、anchor 在周视图为周内任意一天、月视图为当月任意一天、年视图为当年任意一天 */
     fun range(period: ReportPeriod, anchor: LocalDate): Pair<Long, Long> = when (period) {
+        ReportPeriod.DAY -> monthRange(YearMonth.from(anchor))
         ReportPeriod.WEEK -> weekRange(anchor)
         ReportPeriod.MONTH -> monthRange(YearMonth.from(anchor))
         ReportPeriod.YEAR -> yearRange(anchor.year)
@@ -92,6 +102,29 @@ object StatisticsCalculator {
     }
 
     // ==================== 分类 / 大额 ====================
+
+    /**
+     * 按日聚合：区间内有账单记录的每一天一个点（无记录的天不产出），按日期降序（最新在前）。
+     * 供报表页「日收支」列表使用。
+     */
+    fun dayBalances(
+        list: List<com.xl.bill.mint.data.db.TransactionEntity>,
+        start: Long,
+        end: Long
+    ): List<DayBalance> {
+        val zone = ZoneId.systemDefault()
+        val buckets = HashMap<LocalDate, LongArray>() // [income, expense]
+        for (tx in list) {
+            if (tx.occurredAt !in start until end) continue
+            val d = Instant.ofEpochMilli(tx.occurredAt).atZone(zone).toLocalDate()
+            val pair = buckets.getOrPut(d) { LongArray(2) }
+            if (tx.type == _root_ide_package_.com.xl.bill.mint.data.db.TransactionEntity.Companion.TYPE_INCOME) pair[0] += tx.amount
+            else pair[1] += tx.amount
+        }
+        return buckets.entries
+            .map { DayBalance(it.key, it.value[0], it.value[1]) }
+            .sortedByDescending { it.date }
+    }
 
     /** 分类占比（按金额降序，percent = 占该类收支总额比例 0..1） */
     fun categoryBreakdown(
@@ -181,9 +214,13 @@ object StatisticsCalculator {
         }
     }
 
-    /** 按周期取趋势：周/月 = 逐日，年 = 12 个月 */
+    /** 按周期取趋势：周/月/日 = 逐日，年 = 12 个月（日视图 UI 不渲染趋势，这里对齐月口径） */
     fun periodTrend(period: ReportPeriod, anchor: LocalDate, list: List<com.xl.bill.mint.data.db.TransactionEntity>): List<MonthPoint> =
         when (period) {
+            ReportPeriod.DAY -> {
+                val (start, end) = monthRange(YearMonth.from(anchor))
+                dailyTrend(list, start, end)
+            }
             ReportPeriod.WEEK -> {
                 val (start, end) = weekRange(anchor)
                 dailyTrend(list, start, end)

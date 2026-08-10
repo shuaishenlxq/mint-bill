@@ -3,6 +3,7 @@ package com.xl.bill.mint.billimport
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.room.withTransaction
 import com.xl.bill.mint.data.db.TransactionEntity
 import com.xl.bill.mint.di.ServiceLocator
 import com.xl.bill.mint.parser.AlipayCsvParser
@@ -10,7 +11,6 @@ import com.xl.bill.mint.parser.BillImportRow
 import com.xl.bill.mint.parser.BillParseResult
 import com.xl.bill.mint.parser.Channel
 import com.xl.bill.mint.parser.ExcelBillParser
-import com.xl.bill.mint.parser.ParsedBill
 
 /**
  * 重复记录处理策略（确认导入时由用户选择）：
@@ -93,33 +93,40 @@ class BillImportService(private val context: Context) {
     /**
      * 确认后批量入库，返回新增/跳过统计；channel 区分来源（默认微信）。
      * 重复记录按 [DuplicatePolicy] 处理：REPLACE = 删除旧行后整体重插；SKIP = 仅插新记录。
+     *
+     * @param existingKeys 已存在的去重键集合（detectDuplicates 结果复用，避免二次查库）；null 时自查。
      */
     suspend fun commit(
         rows: List<BillImportRow>,
         channel: Channel = Channel.WECHAT,
-        policy: DuplicatePolicy = DuplicatePolicy.SKIP
+        policy: DuplicatePolicy = DuplicatePolicy.SKIP,
+        existingKeys: Set<String>? = null
     ): BillCommitResult {
         if (rows.isEmpty()) return BillCommitResult(0, 0)
 
         val repo = ServiceLocator.transactionRepository
         val accountId = repo.resolveAccountId(accountPkg(channel))
 
-        val existing = repo.existingNotificationKeys(rows.map { it.notificationKey })
+        val existing = existingKeys ?: repo.existingNotificationKeys(rows.map { it.notificationKey })
         val dupRows = rows.filter { it.notificationKey in existing }
         val newRows = rows - dupRows
+        val toInsertRows = if (policy == DuplicatePolicy.REPLACE) rows else newRows
 
-        if (policy == DuplicatePolicy.REPLACE && dupRows.isNotEmpty()) {
-            repo.deleteByNotificationKeys(dupRows.map { it.notificationKey })
-        }
-        val toInsert = (if (policy == DuplicatePolicy.REPLACE) rows else newRows).map { row ->
-            val parsed: ParsedBill = row.toParsedBill(channel)
+        // 分类匹配（CPU 热点，放事务外）：批量预计算 + 同文本短路
+        val parsedList = toInsertRows.map { it.toParsedBill(channel) }
+        val defaults = ServiceLocator.settingsRepository.getCategoryDefaults()
+        val categoryIds = ServiceLocator.categoryMatcher.resolveBatch(
+            parsedList.map { it.type to it.rawText.orEmpty() },
+            defaults
+        )
+        val toInsert = toInsertRows.zip(parsedList).mapIndexed { i, (row, parsed) ->
             TransactionEntity(
                 channel = channelDbValue(channel),
                 rawTitle = null,
                 rawText = parsed.rawText,
                 amount = parsed.amount,
                 type = parsed.type,
-                categoryId = ServiceLocator.categoryMatcher.resolveCategoryId(parsed.type, null, parsed.rawText),
+                categoryId = categoryIds[i],
                 accountId = accountId,
                 merchant = parsed.merchant,
                 occurredAt = parsed.occurredAt,
@@ -128,7 +135,20 @@ class BillImportService(private val context: Context) {
                 createdAt = System.currentTimeMillis()
             )
         }
-        val inserted = repo.insertAll(toInsert)
+
+        // 单事务：REPLACE 先删旧再整体重插（原子，避免双写事务双 fsync/双全表刷新）
+        val inserted = ServiceLocator.appDatabase.withTransaction {
+            if (policy == DuplicatePolicy.REPLACE && dupRows.isNotEmpty()) {
+                repo.deleteByNotificationKeys(dupRows.map { it.notificationKey })
+            }
+            repo.insertAllQuiet(toInsert)
+        }
+        // 事务提交后再刷新小组件（事务内广播会读到旧数据）
+        if (inserted > 0) {
+            repo.notifyWidgetDataChanged()
+            // 首次导入成功 → 自动记录存款净结余起始日（幂等，先到先得）
+            ServiceLocator.settingsRepository.ensureSavingsBaseTime(System.currentTimeMillis())
+        }
         return BillCommitResult(inserted = inserted, skipped = rows.size - inserted)
     }
 }

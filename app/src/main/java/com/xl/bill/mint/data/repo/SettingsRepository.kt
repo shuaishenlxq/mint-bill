@@ -92,14 +92,15 @@ class SettingsRepository(
     // 金额单位「分」；total/monthly 未设置存空串（读回 null），initial 缺省 0L。
     // 走 Room settings 表：导出导入（TransferCodec）全量透传，无需 DB 迁移。
 
-    /** 存款目标配置：total=目标总存款(null=未设置)、initial=当前存款(初始化基准)、monthly=每月目标存款(null=未设置) */
-    data class SavingsGoal(val total: Long?, val initial: Long, val monthly: Long?)
+    /** 存款目标配置：total=目标总存款(null=未设置)、initial=当前存款(初始化基准)、monthly=每月目标存款(null=未设置)、baseTime=净结余起始日(毫秒，null=未设置全量累计) */
+    data class SavingsGoal(val total: Long?, val initial: Long, val monthly: Long?, val baseTime: Long? = null)
 
     val savingsGoal: Flow<SavingsGoal> = settingDao.observeAll().map { list ->
         SavingsGoal(
             total = list.firstOrNull { it.key == KEY_SAVINGS_TOTAL }?.value?.toLongOrNull(),
             initial = list.firstOrNull { it.key == KEY_SAVINGS_INITIAL }?.value?.toLongOrNull() ?: 0L,
-            monthly = list.firstOrNull { it.key == KEY_SAVINGS_MONTHLY }?.value?.toLongOrNull()
+            monthly = list.firstOrNull { it.key == KEY_SAVINGS_MONTHLY }?.value?.toLongOrNull(),
+            baseTime = list.firstOrNull { it.key == KEY_SAVINGS_BASE_TIME }?.value?.toLongOrNull()
         )
     }
 
@@ -107,7 +108,8 @@ class SettingsRepository(
         SavingsGoal(
             total = settingDao.get(KEY_SAVINGS_TOTAL)?.toLongOrNull(),
             initial = settingDao.get(KEY_SAVINGS_INITIAL)?.toLongOrNull() ?: 0L,
-            monthly = settingDao.get(KEY_SAVINGS_MONTHLY)?.toLongOrNull()
+            monthly = settingDao.get(KEY_SAVINGS_MONTHLY)?.toLongOrNull(),
+            baseTime = settingDao.get(KEY_SAVINGS_BASE_TIME)?.toLongOrNull()
         )
 
     suspend fun setSavingsGoal(goal: SavingsGoal) {
@@ -129,6 +131,86 @@ class SettingsRepository(
                 goal.monthly?.toString() ?: ""
             )
         )
+        settingDao.put(
+            _root_ide_package_.com.xl.bill.mint.data.db.SettingEntity(
+                KEY_SAVINGS_BASE_TIME,
+                goal.baseTime?.toString() ?: ""
+            )
+        )
+    }
+
+    /** 幂等写入净结余起始日：仅当从未设置过时写入（首次设目标/首次导入触发），先到先得 */
+    suspend fun ensureSavingsBaseTime(now: Long) {
+        if (settingDao.get(KEY_SAVINGS_BASE_TIME) == null) {
+            settingDao.put(
+                _root_ide_package_.com.xl.bill.mint.data.db.SettingEntity(
+                    KEY_SAVINGS_BASE_TIME,
+                    now.toString()
+                )
+            )
+        }
+    }
+
+    // ==================== 默认分类（支出/收入分开配置） ====================
+    // 存分类 id 字符串，空/缺失 = 未配置（回落初始默认：支出→餐饮、收入→其他收入）。
+
+    fun observeCategoryDefaults(): Flow<com.xl.bill.mint.parser.Defaults> =
+        settingDao.observeAll().map { list ->
+            com.xl.bill.mint.parser.Defaults(
+                expenseId = list.firstOrNull { it.key == KEY_DEFAULT_CATEGORY_EXPENSE }?.value?.toLongOrNull(),
+                incomeId = list.firstOrNull { it.key == KEY_DEFAULT_CATEGORY_INCOME }?.value?.toLongOrNull()
+            )
+        }
+
+    suspend fun getCategoryDefaults(): com.xl.bill.mint.parser.Defaults =
+        com.xl.bill.mint.parser.Defaults(
+            expenseId = settingDao.get(KEY_DEFAULT_CATEGORY_EXPENSE)?.toLongOrNull(),
+            incomeId = settingDao.get(KEY_DEFAULT_CATEGORY_INCOME)?.toLongOrNull()
+        )
+
+    /** 设置默认分类；categoryId=null 表示清除配置（恢复初始默认） */
+    suspend fun setDefaultCategory(type: Int, categoryId: Long?) {
+        val key = if (type == com.xl.bill.mint.data.db.CategoryEntity.TYPE_EXPENSE) {
+            KEY_DEFAULT_CATEGORY_EXPENSE
+        } else {
+            KEY_DEFAULT_CATEGORY_INCOME
+        }
+        settingDao.put(
+            _root_ide_package_.com.xl.bill.mint.data.db.SettingEntity(
+                key,
+                categoryId?.toString() ?: ""
+            )
+        )
+    }
+
+    // ==================== 广告过滤自定义词 ====================
+    // 存 JSON 数组字符串（org.json 依赖已有）；仅自定义词入库，内置词表在解析引擎内。
+
+    fun observeAdBlockWords(): Flow<List<String>> =
+        settingDao.observeAll().map { list ->
+            decodeAdBlockWords(list.firstOrNull { it.key == KEY_AD_BLOCK_WORDS }?.value)
+        }
+
+    suspend fun getAdBlockWords(): List<String> =
+        decodeAdBlockWords(settingDao.get(KEY_AD_BLOCK_WORDS))
+
+    suspend fun setAdBlockWords(words: List<String>) {
+        settingDao.put(
+            _root_ide_package_.com.xl.bill.mint.data.db.SettingEntity(
+                KEY_AD_BLOCK_WORDS,
+                org.json.JSONArray(words).toString()
+            )
+        )
+    }
+
+    private fun decodeAdBlockWords(value: String?): List<String> {
+        if (value.isNullOrBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(value)
+            (0 until arr.length()).map { arr.getString(it).trim() }.filter { it.isNotEmpty() }
+        } catch (e: org.json.JSONException) {
+            emptyList()
+        }
     }
 
     private fun channelKey(channel: com.xl.bill.mint.parser.Channel) = "channel_on_${channel.name}"
@@ -143,5 +225,9 @@ class SettingsRepository(
         private const val KEY_SAVINGS_TOTAL = "savings_goal_total"
         private const val KEY_SAVINGS_INITIAL = "savings_goal_initial"
         private const val KEY_SAVINGS_MONTHLY = "savings_goal_monthly"
+        private const val KEY_SAVINGS_BASE_TIME = "savings_goal_base_time"
+        private const val KEY_DEFAULT_CATEGORY_EXPENSE = "default_category_expense"
+        private const val KEY_DEFAULT_CATEGORY_INCOME = "default_category_income"
+        private const val KEY_AD_BLOCK_WORDS = "ad_block_words"
     }
 }

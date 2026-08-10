@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.temporal.TemporalAdjusters
 
 /**
@@ -50,7 +51,7 @@ class StatisticsViewModel : ViewModel() {
     private val period = MutableStateFlow(_root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH)
     private val anchor = MutableStateFlow(LocalDate.now().withDayOfMonth(1))
 
-    /** 报表页顶层 Tab：false=收支（默认）、true=存款 */
+    /** 报表页顶层 Tab：false=收支（默认，含 日/周/月/年 周期）、true=存款 */
     private val _savingsTab = MutableStateFlow(false)
     val savingsTab: StateFlow<Boolean> = _savingsTab.asStateFlow()
 
@@ -102,8 +103,8 @@ class StatisticsViewModel : ViewModel() {
     val savings: StateFlow<SavingsStatistics> =
         combine(transactions, settingsRepo.savingsGoal) { txs, goal ->
             SavingsStatistics(
-                summary = goal.total?.let { _root_ide_package_.com.xl.bill.mint.util.SavingsCalculator.summary(txs, goal.initial, it) },
-                months = _root_ide_package_.com.xl.bill.mint.util.SavingsCalculator.savingsMonthSeries(txs, goal.initial, goal.monthly),
+                summary = goal.total?.let { _root_ide_package_.com.xl.bill.mint.util.SavingsCalculator.summary(txs, goal.initial, it, goal.baseTime) },
+                months = _root_ide_package_.com.xl.bill.mint.util.SavingsCalculator.savingsMonthSeries(txs, goal.initial, goal.monthly, goal.baseTime),
                 monthlyGoal = goal.monthly
             )
         }.stateIn(
@@ -122,22 +123,34 @@ class StatisticsViewModel : ViewModel() {
             )
         )
 
+    /** 日收支列表：仅「日」周期下按锚点月份聚合（有记录的日期，最新在前），其余周期为空 */
+    val dailyList: StateFlow<List<com.xl.bill.mint.util.StatisticsCalculator.DayBalance>> =
+        combine(transactions, period, anchor) { txs, p, a ->
+            if (p == _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY) {
+                val (start, end) = _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.monthRange(YearMonth.from(a))
+                _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.dayBalances(txs, start, end)
+            } else {
+                emptyList()
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     fun setSavingsGoal(goal: com.xl.bill.mint.data.repo.SettingsRepository.SavingsGoal) = viewModelScope.launch {
         settingsRepo.setSavingsGoal(goal)
     }
 
-    /** 切换周期：始终定位到目标周期的当前期（本周/本月/今年），不沿用旧浏览上下文 */
+    /** 切换周期：始终定位到目标周期的当前期（今日/本周/本月/今年），不沿用旧浏览上下文 */
     fun selectPeriod(target: com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod) {
         period.value = target
         anchor.value = currentAnchor(target)
     }
 
-    /** 回到当前期（进入报表页时调用）：周期不变，锚点重置为当前周/月/年 */
+    /** 回到当前期（进入报表页时调用）：周期不变，锚点重置为当前日/周/月/年 */
     fun resetToCurrent() {
         anchor.value = currentAnchor(period.value)
     }
 
     private fun currentAnchor(target: com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod): LocalDate = when (target) {
+        _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY -> LocalDate.now()
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH -> LocalDate.now().withDayOfMonth(1)
         _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR -> LocalDate.now().withDayOfYear(1)
@@ -145,6 +158,7 @@ class StatisticsViewModel : ViewModel() {
 
     fun prev() = anchor.update { a ->
         when (period.value) {
+            _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY -> a.minusMonths(1)
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> a.minusWeeks(1)
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH -> a.minusMonths(1)
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR -> a.minusYears(1)
@@ -153,6 +167,7 @@ class StatisticsViewModel : ViewModel() {
 
     fun next() = anchor.update { a ->
         when (period.value) {
+            _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.DAY -> a.plusMonths(1)
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.WEEK -> a.plusWeeks(1)
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.MONTH -> a.plusMonths(1)
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.ReportPeriod.YEAR -> a.plusYears(1)

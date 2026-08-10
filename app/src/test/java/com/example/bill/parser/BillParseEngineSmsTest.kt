@@ -42,6 +42,18 @@ class BillParseEngineSmsTest {
     }
 
     @Test
+    fun parseAbcBankRmbNoYuanSuffix() {
+        // 农行格式：人民币-14.79，无「元」后缀、无 ¥ 符号、金额带负号（此前解析失败被丢弃）
+        // 同时验证：尾号 1471 / 日期 08月09日 / 时间 21:09 不会被误当金额（若误匹配，amount 不会是 1479）
+        val body = "【中国农业银行】您尾号1471账户08月09日21:09向沃尔玛完成微信支付交易人民币-14.79，余额4759.86，详见掌银。"
+        val parsed = BillParseEngine.parseSms("95599", body, at)
+        assertNotNull(parsed)
+        assertEquals(1479L, parsed!!.amount) // -14.79 → 1479 分（正数）
+        assertEquals(0, parsed.type)          // 支出
+        assertEquals("沃尔玛", parsed.merchant)
+    }
+
+    @Test
     fun parseMerchantWithColonForm() {
         val body = "您尾号1234的卡于18:30消费10.00元，商户名称：美团，余额100元。"
         val parsed = BillParseEngine.parseSms("95588", body, at)

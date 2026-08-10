@@ -23,6 +23,10 @@ object MoneyFormatter {
         return "$sign¥${yuan(fen)}"
     }
 
+    /** 进度百分比：0.19876 → "19.88%"（四舍五入 2 位小数；*100.0 提升 Double 规避 Float 二进制误差） */
+    fun percent(fraction: Float): String =
+        String.format(Locale.US, "%.2f%%", fraction * 100.0)
+
     /** 输入「元」字符串 → 分，非法返回 null */
     fun fenFromYuanInput(input: String): Long? {
         val t = input.trim().replace("¥", "").replace("￥", "").replace(",", "")

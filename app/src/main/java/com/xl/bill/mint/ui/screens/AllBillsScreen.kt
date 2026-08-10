@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,9 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xl.bill.mint.R
+import com.xl.bill.mint.ui.theme.ExpenseRose
+import com.xl.bill.mint.ui.theme.IncomeMint
 
 /**
- * 全部账单列表页：全屏独立页面（带返回），展示 时间范围 × 收支类型 × 支付渠道 三条件交集。
+ * 全部账单列表页：全屏独立页面（带返回），展示 时间范围 × 收支类型 × 支付渠道 × 分类 四条件交集。
  * 滚动加载分页（每页 [com.xl.bill.mint.ui.filter.PAGE_SIZE] 条），初始筛选继承首页快照。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -60,8 +64,10 @@ fun AllBillsScreen(
     var typeFilter by rememberSaveable { mutableStateOf(initialFilters?.type) }
     var channelFilter by rememberSaveable { mutableStateOf(initialFilters?.channel) }
     var rangeFilter by rememberSaveable { mutableStateOf(initialFilters?.range) }
+    var categoryFilter by rememberSaveable { mutableStateOf(initialFilters?.categoryId) }
     var sortFilter by rememberSaveable { mutableStateOf(initialFilters?.sort ?: _root_ide_package_.com.xl.bill.mint.ui.filter.BillSort.TIME_DESC) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showCategoryPicker by remember { mutableStateOf(false) }
 
     // 备注保存成功提示
     var showSaveSuccess by remember { mutableStateOf(false) }
@@ -77,14 +83,15 @@ fun AllBillsScreen(
     val listState = rememberLazyListState()
 
     // 筛选变化（含首次进入）→ 回顶并重置分页
-    LaunchedEffect(typeFilter, channelFilter, rangeFilter, sortFilter) {
+    LaunchedEffect(typeFilter, channelFilter, rangeFilter, categoryFilter, sortFilter) {
         listState.scrollToItem(0)
         viewModel.refresh(
             _root_ide_package_.com.xl.bill.mint.ui.filter.BillFilters(
                 typeFilter,
                 channelFilter,
                 rangeFilter,
-                sortFilter
+                sortFilter,
+                categoryFilter
             )
         )
     }
@@ -129,11 +136,13 @@ fun AllBillsScreen(
         )
     }
     val sortLatestLabel = stringResource(R.string.filter_sort_time_desc)
+    val sortOldestLabel = stringResource(R.string.filter_sort_time_asc)
     val sortAmountDescLabel = stringResource(R.string.filter_sort_amount_desc)
     val sortAmountAscLabel = stringResource(R.string.filter_sort_amount_asc)
     val sortOpts = remember {
         _root_ide_package_.com.xl.bill.mint.ui.filter.sortOptions(
             sortLatestLabel,
+            sortOldestLabel,
             sortAmountDescLabel,
             sortAmountAscLabel
         )
@@ -146,6 +155,9 @@ fun AllBillsScreen(
         allTimeLabel = stringResource(R.string.time_range_all_time),
         todayLabel = stringResource(R.string.time_range_today)
     )
+    // 分类 pill 标签：选中分类名（分类被删/不存在时回退「全部分类」）
+    val categoryLabel = categoryFilter?.let { id -> catById[id]?.name }
+        ?: stringResource(R.string.filter_category_all)
 
     BackHandler(onBack = onBack)
 
@@ -172,12 +184,13 @@ fun AllBillsScreen(
             )
         }
 
-        // 筛选行：时间范围 + 收支类型 + 支付渠道
+        // 筛选行：时间范围 + 收支类型 + 支付渠道 + 分类 + 排序
         FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             _root_ide_package_.com.xl.bill.mint.ui.components.SoftSurface(
                 cornerRadius = 16.dp,
@@ -217,6 +230,31 @@ fun AllBillsScreen(
                 selected = channelFilter,
                 onSelect = { channelFilter = it }
             )
+            // 分类筛选 pill（SoftSurface 弹层样式，与时间范围 pill 一致；分类多，用底部弹窗选择）
+            _root_ide_package_.com.xl.bill.mint.ui.components.SoftSurface(
+                cornerRadius = 16.dp,
+                elevation = 6.dp,
+                onClick = { showCategoryPicker = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = categoryLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Icon(
+                        imageVector = Icons.Rounded.ArrowDropDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             _root_ide_package_.com.xl.bill.mint.ui.components.FilterDropdown(
                 label = sortOpts.first { it.value == sortFilter }.label,
                 options = sortOpts,
@@ -225,13 +263,37 @@ fun AllBillsScreen(
             )
         }
 
-        // 总数
-        Text(
-            text = stringResource(R.string.all_bills_total, state.total),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-        )
+        // 统计栏：共 n 笔（左）+ 收入/支出合计（右）
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.all_bills_total, state.total),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = stringResource(
+                    R.string.all_bills_income,
+                    com.xl.bill.mint.util.MoneyFormatter.yuan(state.income)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = IncomeMint
+            )
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = stringResource(
+                    R.string.all_bills_expense,
+                    com.xl.bill.mint.util.MoneyFormatter.yuan(state.expense)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = ExpenseRose
+            )
+        }
 
         // 列表（滚动加载）
         LazyColumn(
@@ -323,6 +385,20 @@ fun AllBillsScreen(
                 showTimePicker = false
             },
             onDismiss = { showTimePicker = false }
+        )
+    }
+
+    // 分类筛选弹窗（支出/收入分区 + 全部分类）
+    if (showCategoryPicker) {
+        CategoryFilterSheet(
+            categories = categories,
+            currentType = typeFilter,
+            selectedId = categoryFilter,
+            onSelect = {
+                categoryFilter = it
+                showCategoryPicker = false
+            },
+            onDismiss = { showCategoryPicker = false }
         )
     }
 }

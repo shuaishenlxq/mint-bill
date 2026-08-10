@@ -49,8 +49,34 @@ class SettingsViewModel : ViewModel() {
             )
         )
 
+    /** 默认分类配置（支出/收入分开；null=未配置回落初始默认） */
+    val categoryDefaults: StateFlow<com.xl.bill.mint.parser.Defaults> = settings.observeCategoryDefaults()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000),
+            _root_ide_package_.com.xl.bill.mint.parser.Defaults()
+        )
+
+    /** 广告过滤自定义词 */
+    val adBlockWords: StateFlow<List<String>> = settings.observeAdBlockWords()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     fun setSavingsGoal(goal: com.xl.bill.mint.data.repo.SettingsRepository.SavingsGoal) = viewModelScope.launch {
         settings.setSavingsGoal(goal)
+    }
+
+    fun setDefaultCategory(type: Int, categoryId: Long?) = viewModelScope.launch {
+        settings.setDefaultCategory(type, categoryId)
+    }
+
+    fun addAdBlockWord(word: String) = viewModelScope.launch {
+        val t = word.trim()
+        if (t.isEmpty()) return@launch
+        val current = settings.getAdBlockWords()
+        if (t in current) return@launch
+        settings.setAdBlockWords(current + t)
+    }
+
+    fun removeAdBlockWord(word: String) = viewModelScope.launch {
+        settings.setAdBlockWords(settings.getAdBlockWords() - word)
     }
 
     fun setAutoRecord(enabled: Boolean) = viewModelScope.launch {

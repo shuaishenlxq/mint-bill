@@ -50,9 +50,10 @@ object BillRecordPipeline {
         if (!_root_ide_package_.com.xl.bill.mint.di.ServiceLocator.settingsRepository.autoRecordEnabled.first()) return
         if (!_root_ide_package_.com.xl.bill.mint.di.ServiceLocator.settingsRepository.isChannelEnabled(channel)) return
 
-        val parsed = _root_ide_package_.com.xl.bill.mint.parser.BillParseEngine.parse(pkg, title, text, occurredAt, notificationKey)
+        val blockedWords = _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.settingsRepository.getAdBlockWords()
+        val parsed = _root_ide_package_.com.xl.bill.mint.parser.BillParseEngine.parse(pkg, title, text, occurredAt, notificationKey, blockedWords)
         if (parsed == null) {
-            Log.d(TAG, "解析失败(可能无金额/非交易通知): $pkg | $title | $text")
+            Log.d(TAG, "解析失败(可能无金额/非交易通知/被广告过滤): $pkg | $title | $text")
             maybeHintManualTransfer(_root_ide_package_.com.xl.bill.mint.di.ServiceLocator.appContext, title, text)
             return
         }
@@ -87,7 +88,8 @@ object BillRecordPipeline {
         if (!_root_ide_package_.com.xl.bill.mint.di.ServiceLocator.settingsRepository.autoRecordEnabled.first()) return
         if (!_root_ide_package_.com.xl.bill.mint.di.ServiceLocator.settingsRepository.isChannelEnabled(_root_ide_package_.com.xl.bill.mint.parser.Channel.SMS)) return
 
-        val parsed = _root_ide_package_.com.xl.bill.mint.parser.BillParseEngine.parseSms(sender, body, receivedAt)
+        val blockedWords = _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.settingsRepository.getAdBlockWords()
+        val parsed = _root_ide_package_.com.xl.bill.mint.parser.BillParseEngine.parseSms(sender, body, receivedAt, blockedWords)
         if (parsed == null) {
             Log.d(TAG, "短信解析失败(无金额/非交易短信/被拦截): sender=$sender body=${body.take(60)}")
             return
@@ -138,7 +140,8 @@ object BillRecordPipeline {
             return 0L
         }
 
-        val categoryId = _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.categoryMatcher.resolveCategoryId(parsed.type, title, text)
+        val defaults = _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.settingsRepository.getCategoryDefaults()
+        val categoryId = _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.categoryMatcher.resolveCategoryId(parsed.type, title, text, defaults)
         val accountId = _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.transactionRepository.resolveAccountId(pkg)
         val newId = _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.transactionRepository.insert(
             parsed.copy(notificationKey = effectiveKey), categoryId, accountId

@@ -9,7 +9,8 @@ import java.time.ZoneId
  *
  * 口径（与产品约定一致）：
  * - 每月存款 = 当月收入 - 当月支出（净结余），只统计有账单记录的月份；
- * - 当前存款 = 初始化金额 + 全部历史账单累计净结余，随记账自动更新；
+ * - 当前存款 = 初始化金额 + 起始日（baseTime）之后账单的累计净结余，随记账自动更新；
+ *   baseTime 之前的历史账单（如导入的 1 年微信账单）不计入，避免拉低进度；
  * - 月度达标 = 有每月目标时，当月净结余 ≥ 目标；无目标时 met=null（不对比）。
  *
  * 金额单位「分」，occurredAt 为 epoch 毫秒，按系统时区归月（与 App 区间计算一致）。
@@ -67,10 +68,11 @@ object SavingsCalculator {
     fun savingsMonthSeries(
         list: List<com.xl.bill.mint.data.db.TransactionEntity>,
         initial: Long,
-        monthlyGoal: Long?
+        monthlyGoal: Long?,
+        baseTime: Long? = null
     ): List<SavingsMonthView> {
         var cumulative = initial
-        return monthBalances(list).map { mb ->
+        return monthBalances(filterByBaseTime(list, baseTime)).map { mb ->
             cumulative += mb.balance
             SavingsMonthView(
                 month = mb.month,
@@ -81,14 +83,27 @@ object SavingsCalculator {
         }
     }
 
-    /** 首页进度摘要：当前存款 = initial + 全量累计净结余；goalTotal ≤ 0 返回 null（未设置引导态） */
-    fun summary(list: List<com.xl.bill.mint.data.db.TransactionEntity>, initial: Long, goalTotal: Long): SavingsSummary? {
+    /** 首页进度摘要：当前存款 = initial + 起始日之后累计净结余（负值钳 0）；goalTotal ≤ 0 返回 null（未设置引导态） */
+    fun summary(
+        list: List<com.xl.bill.mint.data.db.TransactionEntity>,
+        initial: Long,
+        goalTotal: Long,
+        baseTime: Long? = null
+    ): SavingsSummary? {
         if (goalTotal <= 0) return null
-        val cumulative = list.sumOf { tx ->
+        val cumulative = filterByBaseTime(list, baseTime).sumOf { tx ->
             if (tx.type == _root_ide_package_.com.xl.bill.mint.data.db.TransactionEntity.Companion.TYPE_INCOME) tx.amount else -tx.amount
         }
-        val current = initial + cumulative
+        // 存款不展示为负：当前存款至少为 0（避免历史导入/基准前支出拉低进度条）
+        val current = (initial + cumulative).coerceAtLeast(0L)
         val progress = (current.toFloat() / goalTotal.toFloat()).coerceIn(0f, 1f)
         return SavingsSummary(initial, cumulative, current, goalTotal, progress)
     }
+
+    /** 按起始日过滤：baseTime=null 保留全部（兼容旧口径），否则只保留 occurredAt >= baseTime */
+    private fun filterByBaseTime(
+        list: List<com.xl.bill.mint.data.db.TransactionEntity>,
+        baseTime: Long?
+    ): List<com.xl.bill.mint.data.db.TransactionEntity> =
+        if (baseTime == null) list else list.filter { it.occurredAt >= baseTime }
 }

@@ -258,4 +258,71 @@ class BillParseEngineTest {
         assertEquals(1L, r!!.amount)
         assertEquals(ParsedBill.TYPE_EXPENSE, r.type)
     }
+
+    // ================== 广告过滤（通知/短信入口） ==================
+
+    @Test
+    fun adNotificationRejected() {
+        // 报告案例：保险广告「补齐住院保障更安心1元」含金额「1元」但无交易动作词 → 拒绝
+        assertNull(
+            BillParseEngine.parse("com.tencent.mm", "微信支付", "补齐住院保障更安心1元")
+        )
+        // 纯营销广告同样拒绝
+        assertNull(
+            BillParseEngine.parse("com.tencent.mm", "微信支付", "限时特惠 全场9.9元 领券立减")
+        )
+    }
+
+    @Test
+    fun adNotificationWithCustomWordRejected() {
+        // 自定义过滤词：命中即拒（无需内置词）
+        assertNull(
+            BillParseEngine.parse(
+                "com.tencent.mm", "微信支付", "专属福利 5元红包等你拿",
+                blockedWords = listOf("专属福利")
+            )
+        )
+    }
+
+    @Test
+    fun realPaymentNotBlockedByAdWords() {
+        // 真实支付含交易动作词「支付成功」→ 即使文本含「保障/住院」类词也不拦截
+        val r = BillParseEngine.parse("com.tencent.mm", "微信支付凭证", "XX医院支付成功 5000元")
+        assertNotNull(r)
+        assertEquals(500000L, r!!.amount)
+        // 保险缴费类真实支出（含「扣款」）放行
+        val insurance = BillParseEngine.parse(
+            "com.tencent.mm", "微信支付凭证", "平安保险 保费自动扣款 500.00元"
+        )
+        assertNotNull(insurance)
+        assertEquals(ParsedBill.TYPE_EXPENSE, insurance!!.type)
+    }
+
+    @Test
+    fun adWordWithoutMoneyStillNull() {
+        // 广告词但无金额：parse 本就返回 null（验证不回归）
+        assertNull(BillParseEngine.parse("com.tencent.mm", "微信支付", "免费领取保障"))
+    }
+
+    @Test
+    fun isAdNotificationCombinesBuiltinAndCustom() {
+        assertTrue(BillParseEngine.isAdNotification("补齐住院保障更安心1元"))
+        assertTrue(BillParseEngine.isAdNotification("免费领券"))
+        assertTrue(BillParseEngine.isAdNotification("专属福利", listOf("专属福利")))
+        // 含交易动作词 → 不拦截
+        assertTrue(!BillParseEngine.isAdNotification("支付成功 5000元"))
+        assertTrue(!BillParseEngine.isAdNotification("转账成功 100元"))
+        // 无广告词 → 不拦截
+        assertTrue(!BillParseEngine.isAdNotification("星巴克 消费35元"))
+    }
+
+    @Test
+    fun adSmsRejected() {
+        // 短信入口广告门禁一致
+        assertNull(BillParseEngine.parseSms("10690001", "点击领取免费保障1元"))
+        // 真实消费短信（含「消费」交易词）不受影响
+        val r = BillParseEngine.parseSms("95588", "您尾号8888卡消费35.00元，余额1000.00元")
+        assertNotNull(r)
+        assertEquals(3500L, r!!.amount)
+    }
 }

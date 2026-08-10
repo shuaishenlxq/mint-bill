@@ -22,21 +22,26 @@ class TransactionRepository(
 
     /**
      * 多条件交集分页查询（全部账单页）；null 参数表示该条件不限制。
-     * @param sortMode 排序方式：0=时间倒序，1=金额升序，2=金额降序
+     * @param sortMode 排序方式：0=时间倒序，1=金额升序，2=金额降序，3=时间正序
      */
     suspend fun getFiltered(
         start: Long?,
         end: Long?,
         type: Int?,
         channel: String?,
+        categoryId: Long?,
         sortMode: Int,
         limit: Int,
         offset: Int
-    ): List<com.xl.bill.mint.data.db.TransactionEntity> = txDao.getFiltered(start, end, type, channel, sortMode, limit, offset)
+    ): List<com.xl.bill.mint.data.db.TransactionEntity> = txDao.getFiltered(start, end, type, channel, categoryId, sortMode, limit, offset)
 
     /** 多条件交集总数（分页 hasMore 判定 + 列表页「共 N 笔」） */
-    suspend fun countFiltered(start: Long?, end: Long?, type: Int?, channel: String?): Int =
-        txDao.countFiltered(start, end, type, channel)
+    suspend fun countFiltered(start: Long?, end: Long?, type: Int?, channel: String?, categoryId: Long?): Int =
+        txDao.countFiltered(start, end, type, channel, categoryId)
+
+    /** 多条件交集收支合计（全部账单页统计栏，与 countFiltered 同 WHERE 口径） */
+    suspend fun sumFiltered(start: Long?, end: Long?, type: Int?, channel: String?, categoryId: Long?): com.xl.bill.mint.data.db.SumResult =
+        txDao.sumFiltered(start, end, type, channel, categoryId)
 
     /** 多条件交集响应式列表（首页，LIMIT 20） */
     fun observeFiltered(
@@ -94,11 +99,19 @@ class TransactionRepository(
      * 整个批次只刷新一次小组件。
      */
     suspend fun insertAll(entities: List<com.xl.bill.mint.data.db.TransactionEntity>): Int {
-        if (entities.isEmpty()) return 0
-        val rowIds = txDao.insertAll(entities)
-        val inserted = rowIds.count { it > 0 }
+        val inserted = insertAllQuiet(entities)
         if (inserted > 0) notifyWidgetDataChanged()
         return inserted
+    }
+
+    /**
+     * 静默批量插入（不刷新小组件）：供导入事务内调用——
+     * 调用方用 db.withTransaction 包裹整体写入，事务提交后再统一 [notifyWidgetDataChanged]，
+     * 避免事务内广播读到旧数据，也避免 REPLACE 模式下删/插双事务双刷新。
+     */
+    suspend fun insertAllQuiet(entities: List<com.xl.bill.mint.data.db.TransactionEntity>): Int {
+        if (entities.isEmpty()) return 0
+        return txDao.insertAll(entities).count { it > 0 }
     }
 
     /** 批量去重查询：返回已存在的 notificationKey 集合（重复导入同一文件跳过） */
@@ -133,8 +146,8 @@ class TransactionRepository(
         notifyWidgetDataChanged()
     }
 
-    /** 账单数据变更后，事件刷新桌面小组件（同进程直调，开销极小） */
-    private fun notifyWidgetDataChanged() {
+    /** 账单数据变更后，事件刷新桌面小组件（同进程直调，开销极小；导入事务内调用需移出事务） */
+    fun notifyWidgetDataChanged() {
         _root_ide_package_.com.xl.bill.mint.widget.BudgetWidgetReceiver.Companion.notifyDataChanged(
             _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.appContext)
     }

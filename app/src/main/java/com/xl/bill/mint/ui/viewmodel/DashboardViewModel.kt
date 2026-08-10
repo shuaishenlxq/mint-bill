@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.YearMonth
 
 /**
@@ -42,6 +43,16 @@ class DashboardViewModel : ViewModel() {
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.MonthOverview(0, 0)
         )
 
+    /** 当日收支：今天零点→明天零点（跨天由 WhileSubscribed 重新订阅重算，与 overview 行为一致） */
+    val todayOverview: StateFlow<com.xl.bill.mint.util.StatisticsCalculator.MonthOverview> = transactions
+        .map { list ->
+            val (start, end) = _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.dayRange(LocalDate.now())
+            _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.overview(list, start, end)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000),
+            _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.MonthOverview(0, 0)
+        )
+
     // ==================== 存款目标 ====================
 
     val savingsGoal: StateFlow<com.xl.bill.mint.data.repo.SettingsRepository.SavingsGoal> = settingsRepo.savingsGoal
@@ -56,7 +67,7 @@ class DashboardViewModel : ViewModel() {
     /** 存款进度摘要：未设置目标（total null/0）时为 null → 首页显示引导态 */
     val savingsSummary: StateFlow<com.xl.bill.mint.util.SavingsCalculator.SavingsSummary?> =
         combine(transactions, settingsRepo.savingsGoal) { txs, goal ->
-            goal.total?.let { _root_ide_package_.com.xl.bill.mint.util.SavingsCalculator.summary(txs, goal.initial, it) }
+            goal.total?.let { _root_ide_package_.com.xl.bill.mint.util.SavingsCalculator.summary(txs, goal.initial, it, goal.baseTime) }
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 

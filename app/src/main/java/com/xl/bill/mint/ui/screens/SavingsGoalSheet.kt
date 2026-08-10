@@ -1,5 +1,6 @@
 package com.xl.bill.mint.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,12 +11,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material3.Button
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,11 +36,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.xl.bill.mint.R
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 存款目标设置弹窗（ModalBottomSheet）：
- * 目标总存款（必填）、当前存款（初始化基准，选填默认 0）、每月目标存款（选填）。
+ * 目标总存款（必填）、当前存款（初始化基准，选填默认 0）、每月目标存款（选填）、起始日期（选填）。
  * 金额以「元」输入，「分」存储；回显现有值供编辑。
+ *
+ * 起始日期：仅累计该日期之后的净结余（历史导入账单不计入）；未手动选择且从未设置过时自动记录当前时间。
+ * DatePicker 返回 UTC 零点毫秒 → 转 LocalDate 用 ZoneOffset.UTC，存回用系统时区零点（与 TimeRange 口径一致）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +61,8 @@ fun SavingsGoalSheet(
     var total by remember { mutableStateOf(initialGoal.total?.let(_root_ide_package_.com.xl.bill.mint.util.MoneyFormatter::yuan) ?: "") }
     var initial by remember { mutableStateOf(_root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(initialGoal.initial)) }
     var monthly by remember { mutableStateOf(initialGoal.monthly?.let(_root_ide_package_.com.xl.bill.mint.util.MoneyFormatter::yuan) ?: "") }
+    var baseTime by remember { mutableStateOf(initialGoal.baseTime) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var totalError by remember { mutableStateOf(false) }
     var initialError by remember { mutableStateOf(false) }
     var monthlyError by remember { mutableStateOf(false) }
@@ -131,6 +151,30 @@ fun SavingsGoalSheet(
                 shape = MaterialTheme.shapes.large
             )
 
+            // 起始日期：仅累计该日期之后的净结余（历史导入账单不计入进度）
+            OutlinedTextField(
+                value = baseTime?.let { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(it)) }
+                    ?: stringResource(R.string.savings_base_time_auto),
+                onValueChange = {},
+                readOnly = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = true) { showDatePicker = true },
+                label = { Text(stringResource(R.string.savings_base_time)) },
+                trailingIcon = {
+                    IconButton(onClick = { showDatePicker = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.CalendarMonth,
+                            contentDescription = stringResource(R.string.savings_base_time_pick),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                singleLine = true,
+                supportingText = { Text(stringResource(R.string.savings_base_time_hint)) },
+                shape = MaterialTheme.shapes.large
+            )
+
             Button(
                 onClick = {
                     val totalFen = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.fenFromYuanInput(total)
@@ -148,11 +192,18 @@ fun SavingsGoalSheet(
                         monthlyError = true
                         return@Button
                     }
+                    // 起始日：用户手动选择优先；从未设置过且未选择 → 自动记录当前时间（首次设置目标）
+                    val effectiveBaseTime = if (initialGoal.baseTime == null) {
+                        baseTime ?: System.currentTimeMillis()
+                    } else {
+                        baseTime
+                    }
                     onSave(
                         _root_ide_package_.com.xl.bill.mint.data.repo.SettingsRepository.SavingsGoal(
                             total = totalFen,
                             initial = initialFen,
-                            monthly = monthlyFen
+                            monthly = monthlyFen,
+                            baseTime = effectiveBaseTime
                         )
                     )
                 },
@@ -163,6 +214,34 @@ fun SavingsGoalSheet(
             ) {
                 Text(stringResource(R.string.add_bill_save))
             }
+        }
+    }
+
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = baseTime)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.let { utcMillis ->
+                            // DatePicker 返回 UTC 零点毫秒 → 转 LocalDate 用 ZoneOffset.UTC → 系统时区零点存储
+                            val localDate = Instant.ofEpochMilli(utcMillis).atZone(ZoneOffset.UTC).toLocalDate()
+                            baseTime = localDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        ) {
+            DatePicker(state = pickerState)
         }
     }
 }

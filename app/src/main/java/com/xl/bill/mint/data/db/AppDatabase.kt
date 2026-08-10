@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.room.withTransaction
+import androidx.room.RoomDatabase.JournalMode
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -70,6 +71,8 @@ abstract class AppDatabase : RoomDatabase() {
         private fun encryptedBuilder(context: Context, passphrase: ByteArray) =
             Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
                 .openHelperFactory(SupportFactory(passphrase))
+                // Room 2.6 无 enableWAL()，改用 setJournalMode（SQLCipher 4.5.4 支持 WAL）
+                .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .addMigrations(MIGRATION_1_2)
                 .fallbackToDestructiveMigration()
 
