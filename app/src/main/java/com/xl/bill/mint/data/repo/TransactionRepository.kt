@@ -53,7 +53,12 @@ class TransactionRepository(
     ): Flow<List<com.xl.bill.mint.data.db.TransactionEntity>> = txDao.observeFiltered(start, end, type, channel, limit)
 
     /** 自动记账写入（解析结果 + 已解析出的分类/账户） */
-    suspend fun insert(parsed: com.xl.bill.mint.parser.ParsedBill, categoryId: Long, accountId: Long): Long {
+    suspend fun insert(
+        parsed: com.xl.bill.mint.parser.ParsedBill,
+        categoryId: Long,
+        accountId: Long,
+        source: String = "notification"
+    ): Long {
         val id = txDao.insert(
             _root_ide_package_.com.xl.bill.mint.data.db.TransactionEntity(
                 channel = parsed.channel.name.lowercase(),
@@ -66,7 +71,8 @@ class TransactionRepository(
                 merchant = parsed.merchant,
                 occurredAt = parsed.occurredAt,
                 notificationKey = parsed.notificationKey,
-                createdAt = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis(),
+                source = source
             )
         )
         notifyWidgetDataChanged()
@@ -87,7 +93,8 @@ class TransactionRepository(
                 occurredAt = now,
                 notificationKey = "manual-$now-${Random.nextLong()}",
                 note = note,
-                createdAt = now
+                createdAt = now,
+                source = "manual"
             )
         )
         notifyWidgetDataChanged()
@@ -118,6 +125,59 @@ class TransactionRepository(
     suspend fun existingNotificationKeys(keys: List<String>): Set<String> {
         if (keys.isEmpty()) return emptySet()
         return txDao.findExistingNotificationKeys(keys.distinct()).toSet()
+    }
+
+    /** 按 notificationKey 查单条（DB UNIQUE 冲突时区分「真重放」与「key 复用」） */
+    suspend fun getByNotificationKey(key: String): com.xl.bill.mint.data.db.TransactionEntity? =
+        txDao.getByNotificationKey(key)
+
+    /** 跨源去重候选查询（查询窗 ±queryWindowMs；精确窗口由 CrossSourceResolver 按来源对判定） */
+    suspend fun findCrossSourceCandidates(
+        amount: Long,
+        type: Int,
+        centerTs: Long,
+        queryWindowMs: Long
+    ): List<com.xl.bill.mint.data.db.TransactionEntity> =
+        txDao.findCrossSourceCandidates(amount, type, centerTs - queryWindowMs, centerTs + queryWindowMs)
+
+    /** 导入疑似重复候选查询（时间窗参数化：调用方按行组分 [min-60s, max+60s]） */
+    suspend fun findSuspectedDuplicateCandidates(
+        amount: Long,
+        type: Int,
+        fromTs: Long,
+        toTs: Long
+    ): List<com.xl.bill.mint.data.db.TransactionEntity> =
+        txDao.findSuspectedDuplicateCandidates(amount, type, fromTs, toTs)
+
+    /**
+     * 跨源原地升级：保留账单 id（补备注通知深链 3000+id 稳定）与 occurredAt/categoryId/note，
+     * 仅替换为更高优先级来源的 channel/原文/商户/账户/通知键/source。
+     *
+     * - merchant：新来源为空时保留旧值（短信/银行通知常提取不到商户）；
+     * - notificationKey UNIQUE 冲突预检：新 key 已被占用时保留原 key（极罕见：
+     *   同一 key 的通知已被独立落库，此时保留原 key 不影响后续去重）。
+     */
+    suspend fun upgradeChannelSource(
+        id: Long,
+        parsed: com.xl.bill.mint.parser.ParsedBill,
+        existingMerchant: String?,
+        accountId: Long,
+        effectiveKey: String?,
+        newSource: String
+    ) {
+        val mergedMerchant = parsed.merchant ?: existingMerchant
+        val channelName = parsed.channel.name.lowercase()
+        val keyUsable = effectiveKey != null && existingNotificationKeys(listOf(effectiveKey)).isEmpty()
+        if (keyUsable) {
+            txDao.upgradeChannelSource(
+                id, channelName, parsed.rawTitle, parsed.rawText, mergedMerchant, accountId, effectiveKey, newSource
+            )
+        } else {
+            txDao.upgradeChannelSourceKeepKey(
+                id, channelName, parsed.rawTitle, parsed.rawText, mergedMerchant, accountId, newSource
+            )
+        }
+        notifyWidgetDataChanged()
     }
 
     /** 按去重键批量删除（覆盖导入用：先删旧记录再整体重插） */

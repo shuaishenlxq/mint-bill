@@ -53,6 +53,16 @@ class DashboardViewModel : ViewModel() {
             _root_ide_package_.com.xl.bill.mint.util.StatisticsCalculator.MonthOverview(0, 0)
         )
 
+    // ==================== 每日限额 ====================
+
+    /** 每日限额（分，null=未设置；首页今日收支卡环形进度数据源） */
+    val dailyLimit: StateFlow<Long?> = settingsRepo.dailyLimit
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun setDailyLimit(fen: Long?) = viewModelScope.launch {
+        settingsRepo.setDailyLimit(fen)
+    }
+
     // ==================== 存款目标 ====================
 
     val savingsGoal: StateFlow<com.xl.bill.mint.data.repo.SettingsRepository.SavingsGoal> = settingsRepo.savingsGoal

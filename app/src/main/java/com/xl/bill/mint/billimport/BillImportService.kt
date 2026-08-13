@@ -132,7 +132,8 @@ class BillImportService(private val context: Context) {
                 occurredAt = parsed.occurredAt,
                 notificationKey = parsed.notificationKey,
                 note = row.note,
-                createdAt = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis(),
+                source = "import"
             )
         }
 

@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "mint_prefs")
@@ -47,6 +48,36 @@ class SettingsRepository(
 
     suspend fun markFirstLaunchDone() {
         context.dataStore.edit { it[KEY_FIRST_LAUNCH] = true }
+    }
+
+    // ==================== 备份/恢复预置项 ====================
+    // DataStore 不走 Room 事务，导出/导入时由 ExportManager/ImportManager 单独处理。
+    // 仅搬运 4 个开关；未知键忽略，避免污染。
+
+    /** 读取全部 4 个开关（含默认值）。v1 备份文件无此字段时返回空 map。 */
+    suspend fun exportPreferences(): Map<String, Boolean> {
+        val data = context.dataStore.data.first()
+        return mapOf(
+            KEY_AUTO_RECORD.name to (data[KEY_AUTO_RECORD] ?: true),
+            KEY_FIRST_LAUNCH.name to (data[KEY_FIRST_LAUNCH] ?: false),
+            KEY_TRANSFER_HINT.name to (data[KEY_TRANSFER_HINT] ?: true),
+            KEY_APP_LOCK.name to (data[KEY_APP_LOCK] ?: false)
+        )
+    }
+
+    /** 把备份中的预置项写回（仅处理已知键）。 */
+    suspend fun importPreferences(map: Map<String, Boolean>) {
+        val keyByName = mapOf(
+            KEY_AUTO_RECORD.name to KEY_AUTO_RECORD,
+            KEY_FIRST_LAUNCH.name to KEY_FIRST_LAUNCH,
+            KEY_TRANSFER_HINT.name to KEY_TRANSFER_HINT,
+            KEY_APP_LOCK.name to KEY_APP_LOCK
+        )
+        context.dataStore.edit { prefs ->
+            map.forEach { (name, value) ->
+                keyByName[name]?.let { prefs[it] = value }
+            }
+        }
     }
 
     suspend fun isChannelEnabled(channel: com.xl.bill.mint.parser.Channel): Boolean =
@@ -139,6 +170,47 @@ class SettingsRepository(
         )
     }
 
+    // ==================== 每日限额 ====================
+    // 金额单位「分」；未设置存空串（读回 null）。走 Room settings 表：
+    // 导出导入（TransferCodec）全量透传，无需 DB 迁移。
+
+    /** 每日限额（分，null=未设置） */
+    val dailyLimit: Flow<Long?> = settingDao.observeAll().map { list ->
+        list.firstOrNull { it.key == KEY_DAILY_LIMIT }?.value?.toLongOrNull()
+    }
+
+    suspend fun getDailyLimit(): Long? = settingDao.get(KEY_DAILY_LIMIT)?.toLongOrNull()
+
+    suspend fun setDailyLimit(fen: Long?) {
+        settingDao.put(
+            _root_ide_package_.com.xl.bill.mint.data.db.SettingEntity(
+                KEY_DAILY_LIMIT,
+                fen?.toString() ?: ""
+            )
+        )
+    }
+
+    // ==================== 短信去重窗口 ====================
+    // 短信与支付通知视为同一笔的判定时长（毫秒）；默认 5s，设置页可调（3/5/10/30/60s）。
+
+    suspend fun getCrossSourceSmsWindowMs(): Long =
+        settingDao.get(KEY_CROSS_SOURCE_SMS_WINDOW_MS)?.toLongOrNull()
+            ?: _root_ide_package_.com.xl.bill.mint.parser.CrossSourceResolver.DEFAULT_SMS_WINDOW_MS
+
+    suspend fun setCrossSourceSmsWindowMs(ms: Long) {
+        settingDao.put(
+            _root_ide_package_.com.xl.bill.mint.data.db.SettingEntity(
+                KEY_CROSS_SOURCE_SMS_WINDOW_MS,
+                ms.toString()
+            )
+        )
+    }
+
+    fun observeCrossSourceSmsWindowMs(): Flow<Long> = settingDao.observeAll().map { list ->
+        list.firstOrNull { it.key == KEY_CROSS_SOURCE_SMS_WINDOW_MS }?.value?.toLongOrNull()
+            ?: _root_ide_package_.com.xl.bill.mint.parser.CrossSourceResolver.DEFAULT_SMS_WINDOW_MS
+    }
+
     /** 幂等写入净结余起始日：仅当从未设置过时写入（首次设目标/首次导入触发），先到先得 */
     suspend fun ensureSavingsBaseTime(now: Long) {
         if (settingDao.get(KEY_SAVINGS_BASE_TIME) == null) {
@@ -213,6 +285,68 @@ class SettingsRepository(
         }
     }
 
+    // ==================== 自定义匹配关键词 ====================
+    // 存 JSON 数组字符串：[{"keywords":["词1","词2"],"scope":"sms"}]
+    // scope: sms=短信 / notification=通知 / all=全部（与解析引擎 CustomKeywordScope 一致）；
+    // 系统预设词未命中时，组内全部关键词命中（AND）即兜底放行记账。
+
+    fun observeCustomMatchGroups(): Flow<List<com.xl.bill.mint.parser.BillParseEngine.CustomMatchGroup>> =
+        settingDao.observeAll().map { list ->
+            decodeCustomMatchGroups(list.firstOrNull { it.key == KEY_CUSTOM_MATCH_KEYWORDS }?.value)
+        }
+
+    suspend fun getCustomMatchGroups(): List<com.xl.bill.mint.parser.BillParseEngine.CustomMatchGroup> =
+        decodeCustomMatchGroups(settingDao.get(KEY_CUSTOM_MATCH_KEYWORDS))
+
+    suspend fun setCustomMatchGroups(groups: List<com.xl.bill.mint.parser.BillParseEngine.CustomMatchGroup>) {
+        settingDao.put(
+            _root_ide_package_.com.xl.bill.mint.data.db.SettingEntity(
+                KEY_CUSTOM_MATCH_KEYWORDS,
+                encodeCustomMatchGroups(groups)
+            )
+        )
+    }
+
+    private fun encodeCustomMatchGroups(
+        groups: List<com.xl.bill.mint.parser.BillParseEngine.CustomMatchGroup>
+    ): String {
+        val arr = org.json.JSONArray()
+        groups.forEach { g ->
+            val obj = org.json.JSONObject()
+            obj.put("keywords", org.json.JSONArray(g.keywords))
+            obj.put("scope", g.scope)
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    private fun decodeCustomMatchGroups(
+        value: String?
+    ): List<com.xl.bill.mint.parser.BillParseEngine.CustomMatchGroup> {
+        if (value.isNullOrBlank()) return emptyList()
+        return try {
+            val validScopes = setOf(
+                com.xl.bill.mint.parser.BillParseEngine.CustomKeywordScope.SMS,
+                com.xl.bill.mint.parser.BillParseEngine.CustomKeywordScope.NOTIFICATION,
+                com.xl.bill.mint.parser.BillParseEngine.CustomKeywordScope.ALL
+            )
+            val arr = org.json.JSONArray(value)
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+                val scope = obj.optString("scope").trim()
+                if (scope !in validScopes) return@mapNotNull null
+                val raw = obj.optJSONArray("keywords") ?: return@mapNotNull null
+                val keywords = (0 until raw.length())
+                    .map { raw.getString(it).trim() }
+                    .filter { it.isNotEmpty() }
+                if (keywords.isEmpty()) null
+                else com.xl.bill.mint.parser.BillParseEngine.CustomMatchGroup(keywords, scope)
+            }
+        } catch (e: org.json.JSONException) {
+            emptyList()
+        }
+    }
+
     private fun channelKey(channel: com.xl.bill.mint.parser.Channel) = "channel_on_${channel.name}"
 
     companion object {
@@ -226,8 +360,11 @@ class SettingsRepository(
         private const val KEY_SAVINGS_INITIAL = "savings_goal_initial"
         private const val KEY_SAVINGS_MONTHLY = "savings_goal_monthly"
         private const val KEY_SAVINGS_BASE_TIME = "savings_goal_base_time"
+        private const val KEY_DAILY_LIMIT = "daily_limit"
+        private const val KEY_CROSS_SOURCE_SMS_WINDOW_MS = "cross_source_sms_window_ms"
         private const val KEY_DEFAULT_CATEGORY_EXPENSE = "default_category_expense"
         private const val KEY_DEFAULT_CATEGORY_INCOME = "default_category_income"
         private const val KEY_AD_BLOCK_WORDS = "ad_block_words"
+        private const val KEY_CUSTOM_MATCH_KEYWORDS = "custom_match_keywords"
     }
 }

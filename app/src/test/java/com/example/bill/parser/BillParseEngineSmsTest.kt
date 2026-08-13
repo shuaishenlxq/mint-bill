@@ -23,7 +23,8 @@ class BillParseEngineSmsTest {
         val body = "【XX银行】您尾号1234的储蓄卡于08月06日18:30消费人民币10.00元，商户：瑞幸咖啡，余额950.00元。"
         val parsed = BillParseEngine.parseSms("95588", body, at)
         assertNotNull(parsed)
-        assertEquals(Channel.SMS, parsed!!.channel)
+        // 短信归银行：正文含「银行」「储蓄卡」→ 渠道为银行卡
+        assertEquals(Channel.BANK, parsed!!.channel)
         assertEquals(1000L, parsed.amount) // 10.00 元 = 1000 分
         assertEquals(0, parsed.type)       // 支出
         assertEquals("瑞幸咖啡", parsed.merchant)
@@ -36,7 +37,7 @@ class BillParseEngineSmsTest {
         val body = "【XX银行】您尾号5678的储蓄卡收到转账人民币100.00元，对方：张三。"
         val parsed = BillParseEngine.parseSms("95533", body, at)
         assertNotNull(parsed)
-        assertEquals(Channel.SMS, parsed!!.channel)
+        assertEquals(Channel.BANK, parsed!!.channel)
         assertEquals(10000L, parsed.amount)
         assertEquals(1, parsed.type) // 收入
     }
@@ -51,6 +52,39 @@ class BillParseEngineSmsTest {
         assertEquals(1479L, parsed!!.amount) // -14.79 → 1479 分（正数）
         assertEquals(0, parsed.type)          // 支出
         assertEquals("沃尔玛", parsed.merchant)
+        // 含「中国农业银行」→ 归银行卡渠道
+        assertEquals(Channel.BANK, parsed.channel)
+    }
+
+    @Test
+    fun parseAbcBankDouyinExactUserSms() {
+        // 用户上报原文：完成抖音支付交易人民币-44.80（无「向X完成」结构 → merchant=null，不影响记账）
+        // 金额带负号 + 无「元」/「¥」后缀 → 必须命中 AMOUNT_RMB_RE（曾因缺失此正则 NO_AMOUNT 拒记）
+        val body = "【中国农业银行】您尾号1471账户08月13日10:48完成抖音支付交易人民币-44.80，余额4386.97，详见掌银。"
+        val parsed = BillParseEngine.parseSms("95599", body, at)
+        assertNotNull(parsed)
+        assertEquals(4480L, parsed!!.amount)          // -44.80 → 4480 分
+        assertEquals(0, parsed.type)                   // 支出（命中 EXPENSE_WORDS「支付」）
+        assertEquals(Channel.BANK, parsed.channel)     // 含「银行」→ 银行卡渠道
+        assertNull(parsed.merchant)                    // 无「向X完成」结构，不提取商户
+        assertEquals("sms-95599-$at", parsed.notificationKey)
+    }
+
+    @Test
+    fun parseBankSmsKeywordVariants() {
+        // 各银行名缩写/借记卡字眼 → 一律归银行卡
+        val variants = listOf(
+            "【招行】您尾号1234的储蓄卡消费10.00元，余额100元。",
+            "【邮储银行】您尾号1234的卡支出10.00元。",
+            "您尾号1234的兴业银行卡消费10.00元。",
+            "您尾号1234的信用卡账单支出10.00元。",
+            "【建设银行】您尾号1234账户消费10.00元。"
+        )
+        variants.forEach { body ->
+            val parsed = BillParseEngine.parseSms("95588", body, at)
+            assertNotNull("应解析成功: $body", parsed)
+            assertEquals("应归银行卡渠道: $body", Channel.BANK, parsed!!.channel)
+        }
     }
 
     @Test
@@ -59,6 +93,8 @@ class BillParseEngineSmsTest {
         val parsed = BillParseEngine.parseSms("95588", body, at)
         assertNotNull(parsed)
         assertEquals("美团", parsed!!.merchant)
+        // 无银行特征词 → 仍为短信渠道
+        assertEquals(Channel.SMS, parsed.channel)
     }
 
     @Test
@@ -68,6 +104,8 @@ class BillParseEngineSmsTest {
         assertNotNull(parsed)
         assertEquals(1000L, parsed!!.amount)
         assertEquals(0, parsed.type)
+        // 无银行特征词 → 仍为短信渠道
+        assertEquals(Channel.SMS, parsed.channel)
     }
 
     // ---------- 守卫拦截 ----------

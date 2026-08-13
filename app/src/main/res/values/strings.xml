@@ -55,6 +55,7 @@
     <string name="stat_expense">支出</string>
     <string name="stat_income">收入</string>
     <string name="stat_balance">结余</string>
+    <string name="stat_overage">超额</string>
     <string name="stat_period_day">日</string>
     <string name="stat_period_week">周</string>
     <string name="stat_period_month">月</string>
@@ -89,7 +90,7 @@
     <string name="settings_battery_whitelist_add">加入白名单</string>
     <string name="settings_battery_whitelist_done">已加入</string>
     <string name="settings_rom_autostart">自启动设置</string>
-    <string name="settings_rom_autostart_desc">在系统设置中允许薄荷记账自启动（不同机型路径不同）</string>
+    <string name="settings_rom_autostart_desc">在系统设置中允许薄荷记账自启动（系统不提供查询接口，请确认已允许）</string>
     <string name="settings_rom_autostart_open">去设置</string>
     <string name="settings_rom_autostart_not_supported">当前机型暂不支持一键跳转，请到系统设置中手动允许自启动</string>
     <string name="settings_channels">记账渠道</string>
@@ -106,6 +107,29 @@
     <string name="settings_about_desc">薄荷记账 · 通知监听 + 无障碍兜底自动记账\n保活能力受系统限制，无法保证 100% 存活</string>
     <string name="settings_service_status">记账服务运行中</string>
     <string name="settings_service_status_stopped">记账服务未运行，点击拉起</string>
+    <string name="settings_exact_alarm">精确闹钟（保活增强）</string>
+    <string name="settings_exact_alarm_desc">授予「闹钟和提醒」后，心跳可准点触发，杀进程后自动拉活更可靠</string>
+    <string name="settings_exact_alarm_on">已开启</string>
+    <string name="settings_exact_alarm_off">去开启</string>
+    <string name="settings_diag_log">诊断日志</string>
+    <string name="settings_diag_log_desc">记录自动记账每一步的判定与拦截原因，漏记时先来这里看</string>
+    <string name="diag_dialog_title">诊断日志</string>
+    <string name="diag_share">分享</string>
+    <string name="diag_clear">清空</string>
+    <string name="diag_empty">暂无日志。发生漏记后，这里会显示每一步的判定原因。</string>
+    <string name="diag_share_title">薄荷记账诊断日志</string>
+
+    <!-- 短信去重窗口 -->
+    <string name="settings_sms_window">短信去重窗口</string>
+    <string name="settings_sms_window_desc">短信与支付通知视为同一笔的判定时长；短信延迟超过该范围可能双记，可调大</string>
+    <string name="settings_sms_window_value">当前：%1$d 秒</string>
+    <string name="settings_sms_window_title">选择短信去重窗口</string>
+
+    <!-- 导入疑似重复 -->
+    <string name="bill_import_suspicious_badge">可能重复</string>
+    <string name="bill_import_suspicious_count">发现 %1$d 笔与已记账记录时间/金额相近，可能重复</string>
+    <string name="bill_import_skip_suspicious">跳过可能重复的记录</string>
+    <string name="bill_import_skip_suspicious_desc">与已自动记账的记录时间、金额、方向相近时跳过导入，保留已有的一条</string>
     <string name="settings_keepalive_guide">保活说明</string>
     <string name="settings_transfer_hint">转账记录提示</string>
     <string name="settings_transfer_hint_desc">收到微信转账但通知无金额时，提醒您打开详情页自动记账（每日最多 1 条）</string>
@@ -121,6 +145,8 @@
     <string name="onboarding_step2_desc">兜底方案：即使某天通知被关，也能从支付页面读取金额。开启后可随时关闭。</string>
     <string name="onboarding_step3_title">允许后台运行</string>
     <string name="onboarding_step3_desc">把薄荷记账加入电池白名单并允许自启动，账单记录会更可靠。</string>
+    <string name="onboarding_step4_title">短信记账（推荐）</string>
+    <string name="onboarding_step4_desc">授权接收短信后，银行扣款短信也能自动入账，与支付通知互相补漏。短信只在本机解析，不上传。</string>
     <string name="onboarding_start">开始记账</string>
     <string name="onboarding_skip">跳过，先进去看看</string>
     <string name="onboarding_status_ok">已完成</string>
@@ -223,6 +249,18 @@
     <string name="ad_block_remove">删除</string>
     <string name="ad_block_empty">暂无自定义过滤词</string>
 
+    <!-- 自定义匹配关键词 -->
+    <string name="settings_custom_match">自定义匹配关键词</string>
+    <string name="settings_custom_match_desc">系统预设词未命中时，用你定义的关键词组兜底匹配记账</string>
+    <string name="custom_match_builtin_hint">系统预设词未命中时，若某一组的全部关键词都出现在通知/短信中，则视为账单记账；组内任一关键词未出现则不记。验证码/登录类短信始终不记账</string>
+    <string name="custom_match_input_hint">关键词，多个用;分隔</string>
+    <string name="custom_match_scope_sms">短信</string>
+    <string name="custom_match_scope_notification">通知</string>
+    <string name="custom_match_scope_all">全部</string>
+    <string name="custom_match_add">添加</string>
+    <string name="custom_match_remove">删除</string>
+    <string name="custom_match_empty">暂无自定义关键词组</string>
+
     <!-- 存款目标 -->
     <string name="stat_tab_income_expense">收支</string>
     <string name="stat_tab_savings">存款</string>
@@ -259,11 +297,22 @@
     <string name="savings_summary_goal">目标 ¥%1$s</string>
     <string name="savings_summary_monthly">每月目标 ¥%1$s</string>
 
+    <!-- 每日限额 -->
+    <string name="daily_limit">每日限额</string>
+    <string name="daily_limit_desc">每日支出限额，首页与报表展示超支进度</string>
+    <string name="daily_limit_set">设置每日限额</string>
+    <string name="daily_limit_set_desc">设置后首页展示环形进度，超出用高亮标记</string>
+    <string name="daily_limit_edit">编辑每日限额</string>
+    <string name="daily_limit_unset">未设置</string>
+    <string name="daily_limit_value">¥%1$s / 天</string>
+    <string name="daily_limit_hint">输入为空保存即清除限额；未设置时首页与报表不校验超额</string>
+
     <!-- 今日收支（首页小报表） -->
     <string name="today_title">今日收支</string>
     <string name="today_expense">今日支出</string>
     <string name="today_income">今日收入</string>
     <string name="today_balance">今日结余</string>
+    <string name="today_limit">限额</string>
 
     <!-- 隐私安全 -->
     <string name="settings_security">隐私安全</string>
@@ -328,4 +377,12 @@
     <string name="bill_import_desc_alipay">选择支付宝「导出账单」得到的 CSV 文件，预览确认后导入，重复导入会自动跳过已存在的记录。</string>
     <string name="bill_pick_file_alipay">选择 CSV 文件</string>
     <string name="bill_picking_alipay">请选择支付宝导出的账单 CSV 文件…</string>
+
+    <!-- 备份 / 恢复（文件级，扛卸载重装） -->
+    <string name="settings_backup">备份到文件</string>
+    <string name="settings_backup_desc">导出全部数据为 JSON 文件，存到下载目录或云盘（卸载重装后可还原）</string>
+    <string name="settings_restore">从文件恢复</string>
+    <string name="settings_restore_desc">从备份文件还原全部数据（将清空当前数据）</string>
+    <string name="restore_confirm_title">确认恢复数据？</string>
+    <string name="restore_confirm_msg">恢复将清空当前全部数据并替换为备份内容，确定继续吗？此操作不可恢复。</string>
 </resources>

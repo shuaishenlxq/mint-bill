@@ -41,7 +41,7 @@ object BillParseEngine {
     /** 强支出词（命中必为支出；放在收入词之前，覆盖「你发出的红包」等歧义） */
     private val EXPENSE_STRONG_WORDS = listOf(
         "你发出的红包", "已被接收", "转给", "转账给", "已转出", "转账成功",
-        "付款成功", "支付成功", "发出"
+        "付款成功", "支付成功", "已支付", "发出"
     )
 
     /** 通用收入关键词 */
@@ -102,30 +102,56 @@ object BillParseEngine {
         text: String?,
         occurredAt: Long = System.currentTimeMillis(),
         notificationKey: String? = null,
-        blockedWords: List<String> = emptyList()
-    ): ParsedBill? {
-        val channel = PaymentApps.channelOf(pkg) ?: return null
+        blockedWords: List<String> = emptyList(),
+        customGroups: List<CustomMatchGroup> = emptyList()
+    ): ParsedBill? = parseWithReason(pkg, title, text, occurredAt, notificationKey, blockedWords, customGroups).bill
+
+    /**
+     * 带拒绝原因的解析入口（诊断日志用）。行为与 [parse] 完全一致，
+     * 仅把每个 return null 点替换为带 [ParseRejectReason] 的 [ParseOutcome]。
+     */
+    fun parseWithReason(
+        pkg: String,
+        title: String?,
+        text: String?,
+        occurredAt: Long = System.currentTimeMillis(),
+        notificationKey: String? = null,
+        blockedWords: List<String> = emptyList(),
+        customGroups: List<CustomMatchGroup> = emptyList()
+    ): ParseOutcome {
+        val channel = PaymentApps.channelOf(pkg)
+            ?: return ParseOutcome(null, ParseRejectReason.UNSUPPORTED_PACKAGE)
         val t = title?.trim().orEmpty()
         val b = text?.trim().orEmpty()
-        if (t.isEmpty() && b.isEmpty()) return null
-        // 广告门禁：命中广告词且无交易动作词（支付成功/扣款/到账等）→ 非交易通知，直接拒绝
-        if (isAdNotification("$t\n$b", blockedWords)) return null
+        if (t.isEmpty() && b.isEmpty()) return ParseOutcome(null, ParseRejectReason.EMPTY_TEXT)
+        val combined = "$t\n$b"
+        // 广告门禁：命中广告词且无交易动作词（支付成功/扣款/到账等）→ 非交易通知，直接拒绝。
+        // 自定义关键词兜底：系统预设词未命中时，自定义组全中 → 视为用户确认的真实账单，放行
+        if (isAdNotification(combined, blockedWords) &&
+            !matchCustomGroup(combined, customGroups, CustomKeywordScope.NOTIFICATION)
+        ) {
+            return ParseOutcome(null, ParseRejectReason.AD_BLOCKED)
+        }
 
-        val amountFen = extractAmountFen("$t\n$b") ?: return null
-        if (amountFen <= 0 || amountFen > MAX_AMOUNT_FEN) return null
+        val amountFen = extractAmountFen(combined) ?: return ParseOutcome(null, ParseRejectReason.NO_AMOUNT)
+        if (amountFen <= 0 || amountFen > MAX_AMOUNT_FEN) {
+            return ParseOutcome(null, ParseRejectReason.AMOUNT_OUT_OF_RANGE)
+        }
 
         val type = detectType(t, b)
         val merchant = extractMerchant(channel, t, b)
 
-        return ParsedBill(
-            channel = channel,
-            amount = amountFen,
-            type = type,
-            merchant = merchant,
-            rawTitle = t.ifEmpty { null },
-            rawText = b.ifEmpty { null },
-            occurredAt = occurredAt,
-            notificationKey = notificationKey
+        return ParseOutcome(
+            ParsedBill(
+                channel = channel,
+                amount = amountFen,
+                type = type,
+                merchant = merchant,
+                rawTitle = t.ifEmpty { null },
+                rawText = b.ifEmpty { null },
+                occurredAt = occurredAt,
+                notificationKey = notificationKey
+            )
         )
     }
 
@@ -142,31 +168,45 @@ object BillParseEngine {
         text: String?,
         occurredAt: Long = System.currentTimeMillis(),
         notificationKey: String? = null
-    ): ParsedBill? {
-        val channel = PaymentApps.channelOf(pkg) ?: return null
+    ): ParsedBill? = parseAccessibilityWithReason(pkg, text, occurredAt, notificationKey).bill
+
+    /** 带拒绝原因的无障碍解析入口，行为与 [parseAccessibilityScene] 一致。 */
+    fun parseAccessibilityWithReason(
+        pkg: String,
+        text: String?,
+        occurredAt: Long = System.currentTimeMillis(),
+        notificationKey: String? = null
+    ): ParseOutcome {
+        val channel = PaymentApps.channelOf(pkg)
+            ?: return ParseOutcome(null, ParseRejectReason.UNSUPPORTED_PACKAGE)
         val b = text?.trim().orEmpty()
-        if (b.isEmpty() || !isTransferScene(b)) return null
+        if (b.isEmpty()) return ParseOutcome(null, ParseRejectReason.EMPTY_TEXT)
+        if (!isTransferScene(b)) return ParseOutcome(null, ParseRejectReason.NOT_TRADE_SCENE)
         // 余额/汇总类页面（零钱余额、全部账单、浮窗等）整页金额非单笔交易，直接放弃
-        if (BALANCE_PAGE_WORDS.any { b.contains(it) }) return null
+        if (BALANCE_PAGE_WORDS.any { b.contains(it) }) return ParseOutcome(null, ParseRejectReason.BALANCE_PAGE)
 
         val lines = b.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
-        if (lines.isEmpty()) return null
+        if (lines.isEmpty()) return ParseOutcome(null, ParseRejectReason.NO_AMOUNT)
 
-        val amountFen = extractSceneAmount(lines) ?: return null
-        if (amountFen <= 0 || amountFen > MAX_AMOUNT_FEN) return null
+        val amountFen = extractSceneAmount(lines) ?: return ParseOutcome(null, ParseRejectReason.NO_AMOUNT)
+        if (amountFen <= 0 || amountFen > MAX_AMOUNT_FEN) {
+            return ParseOutcome(null, ParseRejectReason.AMOUNT_OUT_OF_RANGE)
+        }
 
         val type = detectType("", b)
         val merchant = extractMerchant(channel, "", b)
 
-        return ParsedBill(
-            channel = channel,
-            amount = amountFen,
-            type = type,
-            merchant = merchant,
-            rawTitle = null,
-            rawText = b.ifEmpty { null },
-            occurredAt = occurredAt,
-            notificationKey = notificationKey
+        return ParseOutcome(
+            ParsedBill(
+                channel = channel,
+                amount = amountFen,
+                type = type,
+                merchant = merchant,
+                rawTitle = null,
+                rawText = b.ifEmpty { null },
+                occurredAt = occurredAt,
+                notificationKey = notificationKey
+            )
         )
     }
 
@@ -326,6 +366,43 @@ object BillParseEngine {
     private val SMS_MERCHANT_RE = Regex("商户(?:名称)?[:：]([\\u4e00-\\u9fa5A-Za-z0-9·]{1,24})")
 
     /**
+     * 银行短信特征词：命中 → 该短信账单归入「银行卡」渠道（显示/筛选/统计为银行）。
+     * 仅影响渠道归类；notificationKey 仍 `sms-$sender-$ts`、rawTitle 仍 sender。
+     */
+    val BANK_SMS_KEYWORDS = listOf(
+        "银行", "农行", "工行", "建行", "中行", "交行", "招行", "邮储", "光大",
+        "中信", "民生", "浦发", "平安", "广发", "兴业", "华夏", "借记卡", "储蓄卡", "信用卡"
+    )
+
+    // ------------------------------------------------------------------
+    // 自定义匹配关键词（设置页配置：系统预设词未命中时兜底放行）
+    // ------------------------------------------------------------------
+
+    /** 自定义关键词作用范围（与设置页下拉选项一致） */
+    object CustomKeywordScope {
+        const val SMS = "sms"
+        const val NOTIFICATION = "notification"
+        const val ALL = "all"
+    }
+
+    /** 一组自定义关键词：组内全部关键词都出现在内容中（AND）才算命中该组 */
+    data class CustomMatchGroup(val keywords: List<String>, val scope: String)
+
+    /**
+     * 自定义组匹配：任一组的「作用范围匹配 + 组内全部关键词命中」→ true。
+     * @param channelScope 当前数据源范围（短信入口传 [CustomKeywordScope.SMS]，通知入口传 NOTIFICATION）
+     */
+    fun matchCustomGroup(
+        combined: String,
+        groups: List<CustomMatchGroup>,
+        channelScope: String
+    ): Boolean = groups.any { g ->
+        (g.scope == CustomKeywordScope.ALL || g.scope == channelScope) &&
+            g.keywords.isNotEmpty() &&
+            g.keywords.all { combined.contains(it) }
+    }
+
+    /**
      * 短信场景入口：任意短信正文，含合法金额 + 通过方向判定才解析。
      * 守卫（防误记）：
      * 1. [SMS_BLOCK_WORDS] 命中（验证码/登录等）直接拒绝；
@@ -340,32 +417,52 @@ object BillParseEngine {
         sender: String?,
         body: String,
         receivedAt: Long = System.currentTimeMillis(),
-        blockedWords: List<String> = emptyList()
-    ): ParsedBill? {
-        val b = body.trim()
-        if (b.isEmpty()) return null
-        if (SMS_BLOCK_WORDS.any { b.contains(it) }) return null
-        // 广告门禁：营销/保险类短信（无交易动作词）拒绝，行为与通知入口一致
-        if (isAdNotification(b, blockedWords)) return null
-        // 余额守卫：纯余额播报（无交易词）不记账
-        if (b.contains("余额") && SMS_TRADE_WORDS.none { b.contains(it) }) return null
+        blockedWords: List<String> = emptyList(),
+        customGroups: List<CustomMatchGroup> = emptyList()
+    ): ParsedBill? = parseSmsWithReason(sender, body, receivedAt, blockedWords, customGroups).bill
 
-        val amountFen = extractAmountFen(b) ?: return null
-        if (amountFen <= 0 || amountFen > MAX_AMOUNT_FEN) return null
+    /** 带拒绝原因的短信解析入口，行为与 [parseSms] 一致。 */
+    fun parseSmsWithReason(
+        sender: String?,
+        body: String,
+        receivedAt: Long = System.currentTimeMillis(),
+        blockedWords: List<String> = emptyList(),
+        customGroups: List<CustomMatchGroup> = emptyList()
+    ): ParseOutcome {
+        val b = body.trim()
+        if (b.isEmpty()) return ParseOutcome(null, ParseRejectReason.EMPTY_TEXT)
+        // 硬拦截：验证码/登录/退订类与交易无关，自定义关键词不可覆盖（安全优先）
+        if (SMS_BLOCK_WORDS.any { b.contains(it) }) return ParseOutcome(null, ParseRejectReason.SMS_BLOCKED_WORD)
+        val customHit = matchCustomGroup(b, customGroups, CustomKeywordScope.SMS)
+        // 广告门禁：营销/保险类短信（无交易动作词）拒绝；自定义组全中则视为用户确认的真实账单，放行
+        if (isAdNotification(b, blockedWords) && !customHit) return ParseOutcome(null, ParseRejectReason.AD_BLOCKED)
+        // 余额守卫：纯余额播报（无交易词）不记账；自定义组全中则放行
+        if (b.contains("余额") && SMS_TRADE_WORDS.none { b.contains(it) } && !customHit) {
+            return ParseOutcome(null, ParseRejectReason.BALANCE_ONLY_SMS)
+        }
+
+        val amountFen = extractAmountFen(b) ?: return ParseOutcome(null, ParseRejectReason.NO_AMOUNT)
+        if (amountFen <= 0 || amountFen > MAX_AMOUNT_FEN) {
+            return ParseOutcome(null, ParseRejectReason.AMOUNT_OUT_OF_RANGE)
+        }
 
         val type = detectType("", b)
         val merchant = SMS_MERCHANT_RE.find(b)?.groupValues?.get(1)?.trim()
             ?: extractMerchant(Channel.SMS, "", b)
+        // 短信归银行：正文含银行特征词（银行名/借记卡等）→ 渠道记「银行卡」
+        val channel = if (BANK_SMS_KEYWORDS.any { b.contains(it) }) Channel.BANK else Channel.SMS
 
-        return ParsedBill(
-            channel = Channel.SMS,
-            amount = amountFen,
-            type = type,
-            merchant = merchant,
-            rawTitle = sender?.takeIf { it.isNotBlank() },
-            rawText = b,
-            occurredAt = receivedAt,
-            notificationKey = "sms-$sender-$receivedAt"
+        return ParseOutcome(
+            ParsedBill(
+                channel = channel,
+                amount = amountFen,
+                type = type,
+                merchant = merchant,
+                rawTitle = sender?.takeIf { it.isNotBlank() },
+                rawText = b,
+                occurredAt = receivedAt,
+                notificationKey = "sms-$sender-$receivedAt"
+            )
         )
     }
 }

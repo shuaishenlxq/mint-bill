@@ -27,6 +27,70 @@ interface TransactionDao {
     @Query("SELECT notificationKey FROM transactions WHERE notificationKey IN (:keys)")
     suspend fun findExistingNotificationKeys(keys: List<String>): List<String>
 
+    /** 按 notificationKey 查单条（DB UNIQUE 冲突时区分「真重放」与「key 复用」） */
+    @Query("SELECT * FROM transactions WHERE notificationKey = :key LIMIT 1")
+    suspend fun getByNotificationKey(key: String): TransactionEntity?
+
+    /**
+     * 跨源去重候选：同金额+同方向+非手动+非导入来源+时间窗。
+     * 查询窗口由调用方传入（max(60s, 短信窗口)），精确窗口（短信/App↔App）由 CrossSourceResolver 判定。
+     */
+    @Query(
+        "SELECT * FROM transactions " +
+            "WHERE amount = :amount AND type = :type AND channel != 'manual' AND source != 'import' " +
+            "AND occurredAt >= :fromTs AND occurredAt <= :toTs " +
+            "ORDER BY occurredAt DESC, id DESC LIMIT 5"
+    )
+    suspend fun findCrossSourceCandidates(amount: Long, type: Int, fromTs: Long, toTs: Long): List<TransactionEntity>
+
+    /**
+     * 导入疑似重复候选：同金额+同方向+非手动+非导入来源+时间窗（±60s 最大窗）。
+     * 用于导入预览标记「与已自动记账记录可能重复」（跨来源去重）。
+     */
+    @Query(
+        "SELECT * FROM transactions " +
+            "WHERE amount = :amount AND type = :type AND channel != 'manual' AND source != 'import' " +
+            "AND occurredAt >= :fromTs AND occurredAt <= :toTs " +
+            "ORDER BY occurredAt DESC, id DESC LIMIT 5"
+    )
+    suspend fun findSuspectedDuplicateCandidates(amount: Long, type: Int, fromTs: Long, toTs: Long): List<TransactionEntity>
+
+    /**
+     * 跨源原地升级：换更高优先级来源（短信>银行App>微信/支付宝）。
+     * 保留 id / amount / type / occurredAt / categoryId / note / createdAt，
+     * 仅替换 channel/rawTitle/rawText/merchant/accountId/notificationKey/source。
+     */
+    @Query(
+        "UPDATE transactions SET channel = :channel, rawTitle = :rawTitle, rawText = :rawText, " +
+            "merchant = :merchant, accountId = :accountId, notificationKey = :notificationKey, " +
+            "source = :source WHERE id = :id"
+    )
+    suspend fun upgradeChannelSource(
+        id: Long,
+        channel: String,
+        rawTitle: String?,
+        rawText: String?,
+        merchant: String?,
+        accountId: Long,
+        notificationKey: String?,
+        source: String
+    ): Int
+
+    /** 跨源升级（notificationKey 冲突回退：保留原 key，其余照常升级） */
+    @Query(
+        "UPDATE transactions SET channel = :channel, rawTitle = :rawTitle, rawText = :rawText, " +
+            "merchant = :merchant, accountId = :accountId, source = :source WHERE id = :id"
+    )
+    suspend fun upgradeChannelSourceKeepKey(
+        id: Long,
+        channel: String,
+        rawTitle: String?,
+        rawText: String?,
+        merchant: String?,
+        accountId: Long,
+        source: String
+    ): Int
+
     /** 覆盖导入：按去重键批量删除旧记录（notificationKey UNIQUE 定位），返回删除行数 */
     @Query("DELETE FROM transactions WHERE notificationKey IN (:keys)")
     suspend fun deleteByNotificationKeys(keys: List<String>): Int

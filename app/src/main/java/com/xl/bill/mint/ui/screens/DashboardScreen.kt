@@ -1,5 +1,6 @@
 package com.xl.bill.mint.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material3.Icon
@@ -28,8 +30,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xl.bill.mint.R
 import com.xl.bill.mint.ui.theme.ExpenseRose
 import com.xl.bill.mint.ui.theme.GoalMet
+import com.xl.bill.mint.ui.theme.GoalMissed
 import com.xl.bill.mint.ui.theme.IncomeMint
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -66,6 +71,7 @@ fun DashboardScreen(
 
     val savingsGoal by viewModel.savingsGoal.collectAsStateWithLifecycle()
     val savingsSummary by viewModel.savingsSummary.collectAsStateWithLifecycle()
+    val dailyLimit by viewModel.dailyLimit.collectAsStateWithLifecycle()
 
     val scopeMode by viewModel.scopeMode.collectAsStateWithLifecycle()
     val typeFilter by viewModel.typeFilter.collectAsStateWithLifecycle()
@@ -89,6 +95,8 @@ fun DashboardScreen(
     var showTimePicker by remember { mutableStateOf(false) }
     // 存款目标设置弹窗
     var showSavingsGoal by remember { mutableStateOf(false) }
+    // 每日限额设置弹窗
+    var showDailyLimit by remember { mutableStateOf(false) }
     val monthLabel = remember {
         YearMonth.now().format(DateTimeFormatter.ofPattern("yyyy年M月"))
     }
@@ -184,9 +192,13 @@ fun DashboardScreen(
             )
         }
 
-        // 当日收支小报表：今日支出 / 今日收入 / 今日结余
+        // 当日收支小报表：今日支出 / 今日收入 / 今日结余 + 每日限额环形进度
         item {
-            TodayOverviewCard(overview = todayOverview)
+            TodayOverviewCard(
+                overview = todayOverview,
+                dailyLimit = dailyLimit,
+                onLimitClick = { showDailyLimit = true }
+            )
         }
 
         // 存款进度卡：未设置目标 → 引导态；已设置 → 环形进度（点击可编辑）
@@ -393,11 +405,27 @@ fun DashboardScreen(
             }
         )
     }
+
+    // 每日限额设置弹窗：保存后首页限额环形随 settings 流自动刷新
+    if (showDailyLimit) {
+        DailyLimitSheet(
+            onDismiss = { showDailyLimit = false },
+            initialLimit = dailyLimit,
+            onSave = { fen ->
+                viewModel.setDailyLimit(fen)
+                showDailyLimit = false
+            }
+        )
+    }
 }
 
-/** 当日收支小报表：今日支出 / 今日收入 / 今日结余 三列（GlassCard，样式对齐首页现有卡片） */
+/** 当日收支小报表：今日支出 / 今日收入 / 今日结余 + 每日限额环形进度（GlassCard，样式对齐首页现有卡片） */
 @Composable
-private fun TodayOverviewCard(overview: com.xl.bill.mint.util.StatisticsCalculator.MonthOverview) {
+private fun TodayOverviewCard(
+    overview: com.xl.bill.mint.util.StatisticsCalculator.MonthOverview,
+    dailyLimit: Long?,
+    onLimitClick: () -> Unit
+) {
     _root_ide_package_.com.xl.bill.mint.ui.components.GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -410,7 +438,10 @@ private fun TodayOverviewCard(overview: com.xl.bill.mint.util.StatisticsCalculat
                 color = MaterialTheme.colorScheme.onBackground
             )
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 TodayStatCell(
                     label = stringResource(R.string.today_expense),
                     value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(overview.expense),
@@ -428,6 +459,69 @@ private fun TodayOverviewCard(overview: com.xl.bill.mint.util.StatisticsCalculat
                     value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(overview.balance),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
+                )
+                // 每日限额环形进度（未设置显示引导态；点击可设置/编辑）
+                DailyLimitRing(
+                    expense = overview.expense,
+                    income = overview.income,
+                    dailyLimit = dailyLimit,
+                    onClick = onLimitClick
+                )
+            }
+        }
+    }
+}
+
+/** 每日限额环形列：label「限额」+ 圆环（中心百分比，个位整数）；超额时环形与百分比高亮暖红 */
+@Composable
+private fun DailyLimitRing(
+    expense: Long,
+    income: Long,
+    dailyLimit: Long?,
+    onClick: () -> Unit
+) {
+    val percent = _root_ide_package_.com.xl.bill.mint.util.DailyLimit.percentInt(expense, income, dailyLimit)
+    val over = _root_ide_package_.com.xl.bill.mint.util.DailyLimit.isOver(expense, income, dailyLimit)
+    val ringColor = when {
+        percent == null -> MaterialTheme.colorScheme.outlineVariant // 未设置：灰环引导态
+        over -> GoalMissed
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Column(
+        modifier = Modifier
+            .width(64.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = stringResource(R.string.today_limit),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(4.dp))
+        _root_ide_package_.com.xl.bill.mint.ui.components.RingChart(
+            segments = if (percent != null) {
+                listOf(ringColor to (percent / 100f).coerceAtMost(1f))
+            } else emptyList(),
+            modifier = Modifier.size(56.dp),
+            strokeWidth = 7.dp,
+            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+        ) {
+            if (percent != null) {
+                Text(
+                    text = "$percent%",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (over) GoalMissed else MaterialTheme.colorScheme.onBackground
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.daily_limit_set),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    textAlign = TextAlign.Center
                 )
             }
         }

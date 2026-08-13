@@ -12,3 +12,7 @@
 # SQLCipher (net.zetetic) — native lib + JNI binding must be kept
 -keep class net.sqlcipher.** { *; }
 -keep class net.sqlcipher.database.** { *; }
+
+# Glance 桌面小组件（反射实例化 receiver/GlanceAppWidget）
+-keep class com.xl.bill.mint.widget.** { *; }
+-keep class androidx.glance.** { *; }

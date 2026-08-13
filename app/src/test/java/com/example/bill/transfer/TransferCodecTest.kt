@@ -47,6 +47,12 @@ class TransferCodecTest {
         settings = listOf(
             SettingEntity(key = "channel_on_wechat", value = "true"),
             SettingEntity(key = "channel_on_alipay", value = "false")
+        ),
+        preferences = mapOf(
+            "auto_record_enabled" to true,
+            "first_launch_done" to true,
+            "transfer_hint_enabled" to false,
+            "app_lock_enabled" to true
         )
     )
 
@@ -64,6 +70,35 @@ class TransferCodecTest {
         assertEquals(sampleSnapshot().accounts, decoded.accounts)
         assertEquals(sampleSnapshot().transactions, decoded.transactions)
         assertEquals(sampleSnapshot().settings, decoded.settings)
+        assertEquals(sampleSnapshot().preferences, decoded.preferences)
+    }
+
+    @Test
+    fun preferencesRoundTripPreservesFlags() {
+        val snap = sampleSnapshot().copy(
+            preferences = mapOf("auto_record_enabled" to false, "app_lock_enabled" to true)
+        )
+        val decoded = TransferCodec.decode(TransferCodec.encode(snap))
+        assertEquals(snap.preferences, decoded.preferences)
+    }
+
+    @Test
+    fun legacyV1WithoutPreferencesDecodesEmpty() {
+        // 旧版蓝牙传输文件（formatVersion=1）没有 preferences 字段：解码为空 map，不抛错
+        val json = """{"formatVersion":1,"exportedAt":0,"appVersion":"","categories":[],"accounts":[],"transactions":[],"settings":[]}"""
+        val decoded = TransferCodec.decode(json)
+        assertTrue(decoded.preferences.isEmpty())
+    }
+
+    @Test
+    fun v2DecodesPreferences() {
+        val json = """{"formatVersion":2,"exportedAt":0,"appVersion":"","categories":[],"accounts":[],"transactions":[],"settings":[],
+            "preferences":{"auto_record_enabled":true,"app_lock_enabled":false}}"""
+        val decoded = TransferCodec.decode(json)
+        assertEquals(
+            mapOf("auto_record_enabled" to true, "app_lock_enabled" to false),
+            decoded.preferences
+        )
     }
 
     @Test
@@ -124,14 +159,22 @@ class TransferCodecTest {
 
     @Test
     fun decodeWrongFormatVersionThrows() {
+        // FORMAT_VERSION 已升到 2，且 v1/v2 均被接受，故用不支持的版本号验证拒绝逻辑
         val json = TransferCodec.encode(sampleSnapshot())
-            .replace("\"formatVersion\":1", "\"formatVersion\":2")
+            .replace("\"formatVersion\":2", "\"formatVersion\":99")
         try {
             TransferCodec.decode(json)
             fail("should throw")
         } catch (e: TransferException) {
             assertTrue(e.message!!.contains("版本不兼容"))
         }
+    }
+
+    @Test
+    fun v2FormatVersionIsAccepted() {
+        val json = TransferCodec.encode(sampleSnapshot())
+        val decoded = TransferCodec.decode(json)
+        assertEquals(TransferCodec.FORMAT_VERSION, decoded.formatVersion)
     }
 
     @Test

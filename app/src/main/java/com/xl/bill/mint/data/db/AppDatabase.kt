@@ -22,7 +22,7 @@ import java.io.File
         AccountEntity::class,
         SettingEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,6 +42,22 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE categories ADD COLUMN isCustom INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * 2→3：transactions 表加 source 列（记录账单来源：notification/accessibility/sms/manual/import）。
+         * 来源维度用于「短信归银行」后区分「银行App通知 vs 银行短信」（同渠道异来源仍参与跨源去重）。
+         * 存量回填：channel 与 notificationKey 前缀可精确推断的按规则回填，其余留默认 'notification'。
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'notification'")
+                db.execSQL("UPDATE transactions SET source = 'sms' WHERE channel = 'sms'")
+                db.execSQL("UPDATE transactions SET source = 'manual' WHERE channel = 'manual'")
+                db.execSQL("UPDATE transactions SET source = 'import' WHERE notificationKey LIKE 'pdf-%'")
+                db.execSQL("UPDATE transactions SET source = 'accessibility' WHERE notificationKey LIKE 'acc-%'")
+                // 其余（alipay/wechat/bank 通知与升级记录）保持默认 'notification'
             }
         }
 
@@ -73,12 +89,12 @@ abstract class AppDatabase : RoomDatabase() {
                 .openHelperFactory(SupportFactory(passphrase))
                 // Room 2.6 无 enableWAL()，改用 setJournalMode（SQLCipher 4.5.4 支持 WAL）
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
 
         private fun plainBuilder(context: Context) =
             Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
 
         /**

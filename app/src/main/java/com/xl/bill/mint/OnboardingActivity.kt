@@ -3,8 +3,10 @@ package com.xl.bill.mint
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,7 +51,7 @@ import com.xl.bill.mint.util.PermissionChecker
 import kotlinx.coroutines.launch
 
 /**
- * 首次启动引导：通知使用权 → 无障碍 → 后台保活，三步教会小薄荷记好账。
+ * 首次启动引导：通知使用权 → 无障碍 → 后台保活 → 短信权限，四步教会小薄荷记好账。
  */
 class OnboardingActivity : ComponentActivity() {
 
@@ -91,6 +93,10 @@ private fun OnboardingScreen(onStart: () -> Unit) {
     val listenerEnabled = remember(refreshKey) { PermissionChecker.isNotificationListenerEnabled(context) }
     val accessibilityEnabled = remember(refreshKey) { PermissionChecker.isAccessibilityServiceEnabled(context) }
     val batteryWhitelisted = remember(refreshKey) { PermissionChecker.isIgnoringBatteryOptimizations(context) }
+    val smsGranted = remember(refreshKey) { PermissionChecker.hasSmsPermission(context) }
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { refreshKey++ }
 
     Column(
         modifier = Modifier
@@ -147,6 +153,17 @@ private fun OnboardingScreen(onStart: () -> Unit) {
             done = batteryWhitelisted,
             buttonText = stringResource(R.string.settings_battery_whitelist_add),
             onClick = { PermissionChecker.requestIgnoreBatteryOptimizations(context) }
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        StepCard(
+            step = 4,
+            title = stringResource(R.string.onboarding_step4_title),
+            desc = stringResource(R.string.onboarding_step4_desc),
+            done = smsGranted,
+            buttonText = stringResource(R.string.settings_sms_permission_grant),
+            onClick = { smsPermissionLauncher.launch(android.Manifest.permission.RECEIVE_SMS) }
         )
 
         Spacer(Modifier.height(32.dp))

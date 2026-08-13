@@ -31,6 +31,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -201,9 +203,13 @@ fun BillImportSheet(
                     is BillImportUiState.Importing -> Unit
 
                     is BillImportUiState.Preview -> {
+                        val skipSuspicious by viewModel.skipSuspicious.collectAsStateWithLifecycle()
                         PreviewContent(
                             rows = s.rows,
                             unrecognizedCount = s.unrecognizedCount,
+                            suspiciousKeys = s.suspiciousKeys,
+                            skipSuspicious = skipSuspicious,
+                            onSkipSuspiciousChange = viewModel::setSkipSuspicious,
                             onDelete = viewModel::deleteRow,
                             onConfirm = viewModel::confirmImport
                         )
@@ -301,6 +307,9 @@ fun BillImportSheet(
 private fun ColumnScope.PreviewContent(
     rows: List<BillImportRow>,
     unrecognizedCount: Int,
+    suspiciousKeys: Set<String>,
+    skipSuspicious: Boolean,
+    onSkipSuspiciousChange: (Boolean) -> Unit,
     onDelete: (String) -> Unit,
     onConfirm: () -> Unit
 ) {
@@ -324,6 +333,13 @@ private fun ColumnScope.PreviewContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+    if (suspiciousKeys.isNotEmpty()) {
+        Text(
+            text = stringResource(R.string.bill_import_suspicious_count, suspiciousKeys.size),
+            style = MaterialTheme.typography.bodyMedium,
+            color = ExpenseRose
+        )
+    }
     if (rows.isEmpty()) {
         Text(
             text = stringResource(R.string.bill_preview_empty),
@@ -343,8 +359,37 @@ private fun ColumnScope.PreviewContent(
                 .fillMaxWidth()
         ) {
             items(rows, key = { it.notificationKey }) { row ->
-                BillImportRowView(row) { onDelete(row.notificationKey) }
+                BillImportRowView(
+                    item = row,
+                    suspicious = row.notificationKey in suspiciousKeys,
+                    onDelete = { onDelete(row.notificationKey) }
+                )
             }
+        }
+        // 疑似重复跳过开关（默认开：保留已自动记账的那条；关闭则全部导入由用户自决）
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.bill_import_skip_suspicious),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = stringResource(R.string.bill_import_skip_suspicious_desc),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = skipSuspicious,
+                onCheckedChange = onSkipSuspiciousChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
+            )
         }
         Button(
             onClick = onConfirm,
@@ -358,7 +403,7 @@ private fun ColumnScope.PreviewContent(
 }
 
 @Composable
-private fun BillImportRowView(item: BillImportRow, onDelete: () -> Unit) {
+private fun BillImportRowView(item: BillImportRow, suspicious: Boolean, onDelete: () -> Unit) {
     val titleText = remember(item.merchant, item.tradeType, item.rawText) {
         item.merchant ?: item.tradeType ?: item.rawText
     }
@@ -383,6 +428,17 @@ private fun BillImportRowView(item: BillImportRow, onDelete: () -> Unit) {
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1
                 )
+                if (suspicious) {
+                    Spacer(Modifier.width(6.dp))
+                    SoftSurface(cornerRadius = 8.dp, elevation = 2.dp) {
+                        Text(
+                            text = stringResource(R.string.bill_import_suspicious_badge),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ExpenseRose,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                        )
+                    }
+                }
                 if (item.wasNeutral) {
                     Spacer(Modifier.width(6.dp))
                     SoftSurface(cornerRadius = 8.dp, elevation = 2.dp) {

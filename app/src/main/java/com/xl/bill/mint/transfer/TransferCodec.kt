@@ -16,7 +16,9 @@ data class DbSnapshot(
     val categories: List<com.xl.bill.mint.data.db.CategoryEntity>,
     val accounts: List<com.xl.bill.mint.data.db.AccountEntity>,
     val transactions: List<com.xl.bill.mint.data.db.TransactionEntity>,
-    val settings: List<com.xl.bill.mint.data.db.SettingEntity>
+    val settings: List<com.xl.bill.mint.data.db.SettingEntity>,
+    /** DataStore 预置项（自动记账/首启/转账提示/应用锁）；v1 文件无此字段，解码为空 map */
+    val preferences: Map<String, Boolean> = emptyMap()
 )
 
 /** 导出设备信息（仅用于展示/排查） */
@@ -39,7 +41,10 @@ class TransferException(message: String, cause: Throwable? = null) : Exception(m
  */
 object TransferCodec {
 
-    const val FORMAT_VERSION = 1
+    const val FORMAT_VERSION = 2
+
+    // v1 为旧蓝牙传输文件（不含 preferences），仍允许导入；更低/更高版本拒绝
+    private val ACCEPTED_VERSIONS = setOf(1, FORMAT_VERSION)
 
     // ---------- 编码 ----------
 
@@ -58,8 +63,12 @@ object TransferCodec {
         root.put("accounts", encodeAccounts(snapshot.accounts))
         root.put("transactions", encodeTransactions(snapshot.transactions))
         root.put("settings", encodeSettings(snapshot.settings))
+        root.put("preferences", encodePreferences(snapshot.preferences))
         return root.toString()
     }
+
+    private fun encodePreferences(map: Map<String, Boolean>): JSONObject =
+        JSONObject().apply { map.forEach { (k, v) -> put(k, v) } }
 
     private fun encodeCategories(list: List<com.xl.bill.mint.data.db.CategoryEntity>): JSONArray =
         JSONArray().apply {
@@ -104,6 +113,7 @@ object TransferCodec {
                     t.notificationKey?.let { put("notificationKey", it) }
                     t.note?.let { put("note", it) }
                     put("createdAt", t.createdAt)
+                    put("source", t.source)
                 })
             }
         }
@@ -128,7 +138,7 @@ object TransferCodec {
         }
 
         val formatVersion = root.optInt("formatVersion", -1)
-        if (formatVersion != FORMAT_VERSION) {
+        if (formatVersion !in ACCEPTED_VERSIONS) {
             throw TransferException(
                 "导出数据版本不兼容（当前版本 $FORMAT_VERSION，文件版本 $formatVersion），请升级 App 后重试"
             )
@@ -151,8 +161,16 @@ object TransferCodec {
             categories = decodeCategories(root.optJSONArray("categories") ?: JSONArray()),
             accounts = decodeAccounts(root.optJSONArray("accounts") ?: JSONArray()),
             transactions = decodeTransactions(root.optJSONArray("transactions") ?: JSONArray()),
-            settings = decodeSettings(root.optJSONArray("settings") ?: JSONArray())
+            settings = decodeSettings(root.optJSONArray("settings") ?: JSONArray()),
+            preferences = decodePreferences(root.optJSONObject("preferences"))
         )
+    }
+
+    private fun decodePreferences(obj: JSONObject?): Map<String, Boolean> {
+        if (obj == null) return emptyMap()
+        val map = mutableMapOf<String, Boolean>()
+        obj.keys().forEach { key -> map[key] = obj.optBoolean(key, false) }
+        return map
     }
 
     private fun decodeCategories(array: JSONArray): List<com.xl.bill.mint.data.db.CategoryEntity> =
@@ -201,7 +219,8 @@ object TransferCodec {
                 occurredAt = o.getLong("occurredAt"),
                 notificationKey = o.optNullableString("notificationKey"),
                 note = o.optNullableString("note"),
-                createdAt = o.optLong("createdAt", System.currentTimeMillis())
+                createdAt = o.optLong("createdAt", System.currentTimeMillis()),
+                source = o.optString("source", "notification") // v2 旧文件缺省回退
             )
         }
 

@@ -24,7 +24,13 @@ class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-        if (!_root_ide_package_.com.xl.bill.mint.util.PermissionChecker.hasSmsPermission(context)) return
+        if (!_root_ide_package_.com.xl.bill.mint.util.PermissionChecker.hasSmsPermission(context)) {
+            // RECEIVE_SMS 未授权：整条短信链路静默丢弃——留痕（设置页可引导授权）
+            _root_ide_package_.com.xl.bill.mint.util.DiagLog.log(
+                _root_ide_package_.com.xl.bill.mint.util.DiagEvent.SMS_NO_PERMISSION
+            )
+            return
+        }
 
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
         if (messages.isEmpty()) return
@@ -39,6 +45,11 @@ class SmsReceiver : BroadcastReceiver() {
         val sender = messages.firstOrNull()?.originatingAddress
         val receivedAt = messages.firstOrNull()?.timestampMillis
             ?: System.currentTimeMillis()
+
+        _root_ide_package_.com.xl.bill.mint.util.DiagLog.log(
+            _root_ide_package_.com.xl.bill.mint.util.DiagEvent.SMS_RECEIVED,
+            "sender=$sender body=${body.take(30)}"
+        )
 
         val pendingResult = goAsync()
         scope.launch {

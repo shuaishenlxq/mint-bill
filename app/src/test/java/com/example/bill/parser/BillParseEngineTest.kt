@@ -325,4 +325,47 @@ class BillParseEngineTest {
         assertNotNull(r)
         assertEquals(3500L, r!!.amount)
     }
+
+    // ================== 微信扫码付 / 银行信用卡支出（用户复现路径） ==================
+
+    @Test
+    fun wechatScanPayExpense() {
+        // 微信扫码付通知：title=微信支付, text=已支付 ¥13.00（崩溃用户复现路径）
+        // 防御：「已支付」已加入 EXPENSE_STRONG_WORDS / TRADE_GUARD_WORDS
+        val r = BillParseEngine.parse("com.tencent.mm", "微信支付", "已支付 ¥13.00")
+        assertNotNull(r)
+        assertEquals(Channel.WECHAT, r!!.channel)
+        assertEquals(1300L, r.amount)
+        assertEquals(ParsedBill.TYPE_EXPENSE, r.type)
+        // 商户：扫码付通知通常无商户行（仅持卡人显示无商户明细）
+        assertNull(r.merchant)
+    }
+
+    @Test
+    fun bankCreditCardExpense() {
+        // 银行 App 通知的"信用卡支出 X.XX 元"格式（与微信扫码付配对出现）
+        // 农业银行通知走 com.android.bankabc 通道
+        val r = BillParseEngine.parse(
+            "com.android.bankabc", "中国农业银行",
+            "您尾号1471的农行信用卡于08月11日18:43发生一笔支出13.00元,详情请点击"
+        )
+        assertNotNull(r)
+        assertEquals(Channel.BANK, r!!.channel)
+        assertEquals(1300L, r.amount)
+        assertEquals(ParsedBill.TYPE_EXPENSE, r.type)
+        // 银行通知无"向X付款"等商户模式，且不是 WECHAT 通道，不走按行回退
+        assertNull(r.merchant)
+    }
+
+    @Test
+    fun wechatScanPayNotBlockedByAdWords() {
+        // 反向验证：含「已支付」的真实交易不被 ad 词截胡
+        // 即便后续文案嵌了「立减/福利」等营销词，trade guard 也应放行
+        val r = BillParseEngine.parse(
+            "com.tencent.mm", "微信支付", "已支付 ¥13.00 立减2元"
+        )
+        assertNotNull(r)
+        assertEquals(1300L, r!!.amount)
+        assertEquals(ParsedBill.TYPE_EXPENSE, r.type)
+    }
 }

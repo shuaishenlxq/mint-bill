@@ -82,6 +82,7 @@ fun StatisticsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.StatisticsViewMode
     val savingsGoal by viewModel.savingsGoal.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val dailyList by viewModel.dailyList.collectAsStateWithLifecycle()
+    val dailyLimit by viewModel.dailyLimit.collectAsStateWithLifecycle()
 
     var showSavingsGoal by remember { mutableStateOf(false) }
 
@@ -142,7 +143,7 @@ fun StatisticsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.StatisticsViewMode
                         }
                     } else {
                         items(dailyList, key = { it.date.toString() }) { day ->
-                            DailyCell(day, onClick = { daySheet = day })
+                            DailyCell(day, dailyLimit = dailyLimit, onClick = { daySheet = day })
                         }
                     }
                 } else {
@@ -274,10 +275,11 @@ private fun SavingsTopTabs(selected: Boolean, onSelect: (Boolean) -> Unit) {
     }
 }
 
-/** 单日收支小报表：日期（含星期）+ 支出 / 收入 / 结余 三列（居中，结余正绿负红）；点击打开当日账单列表 */
+/** 单日收支小报表：日期（含星期）+ 支出 / 收入 / 结余 / 超额 四列（居中，结余正绿负红，超额>0 高亮暖红）；点击打开当日账单列表 */
 @Composable
 private fun DailyCell(
     day: com.xl.bill.mint.util.StatisticsCalculator.DayBalance,
+    dailyLimit: Long?,
     onClick: () -> Unit
 ) {
     _root_ide_package_.com.xl.bill.mint.ui.components.GlassCard(
@@ -312,6 +314,18 @@ private fun DailyCell(
                     label = stringResource(R.string.stat_balance),
                     value = signedYuan(day.balance),
                     color = if (day.balance >= 0) Color(0xFF4ECDC4) else Color(0xFFFF8A9E),
+                    modifier = Modifier.weight(1f)
+                )
+                DailyStatCell(
+                    label = stringResource(R.string.stat_overage),
+                    value = _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(
+                        _root_ide_package_.com.xl.bill.mint.util.DailyLimit.overage(day.expense, day.income, dailyLimit)
+                    ),
+                    color = if (_root_ide_package_.com.xl.bill.mint.util.DailyLimit.isOver(day.expense, day.income, dailyLimit)) {
+                        GoalMissed
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }

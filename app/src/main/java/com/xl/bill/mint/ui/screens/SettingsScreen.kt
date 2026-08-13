@@ -29,6 +29,8 @@ import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Savings
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -58,8 +60,20 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xl.bill.mint.R
+import com.xl.bill.mint.transfer.BackupFileManager
 import com.xl.bill.mint.ui.theme.ExpenseRose
 import com.xl.bill.mint.ui.theme.IncomeMint
+import com.xl.bill.mint.ui.viewmodel.BackupOpState
+import android.widget.Toast
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import android.app.AlarmManager
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import com.xl.bill.mint.util.DiagLog
 
 /**
  * 设置页：总开关、权限与保活引导、记账渠道、数据管理、保活说明。
@@ -71,7 +85,9 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
     val transferHintEnabled by viewModel.transferHintEnabled.collectAsStateWithLifecycle()
     val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
     val channelEnabled by viewModel.channelEnabled.collectAsStateWithLifecycle()
+    val smsWindowMs by viewModel.smsWindowMs.collectAsStateWithLifecycle()
     val savingsGoal by viewModel.savingsGoal.collectAsStateWithLifecycle()
+    val dailyLimit by viewModel.dailyLimit.collectAsStateWithLifecycle()
     val categoryDefaults by viewModel.categoryDefaults.collectAsStateWithLifecycle()
     val categories by _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.appDatabase.categoryDao().observeAll()
         .collectAsStateWithLifecycle(initialValue = emptyList())
@@ -91,7 +107,10 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
     val accessibilityEnabled = remember(refreshKey) { _root_ide_package_.com.xl.bill.mint.util.PermissionChecker.isAccessibilityServiceEnabled(context) }
     val smsGranted = remember(refreshKey) { _root_ide_package_.com.xl.bill.mint.util.PermissionChecker.hasSmsPermission(context) }
     val batteryWhitelisted = remember(refreshKey) { _root_ide_package_.com.xl.bill.mint.util.PermissionChecker.isIgnoringBatteryOptimizations(context) }
-    val fgAlive = remember(refreshKey) { _root_ide_package_.com.xl.bill.mint.util.KeepAliveHelper.isForegroundServiceAlive() }
+    val fgAlive = remember(refreshKey) { _root_ide_package_.com.xl.bill.mint.util.KeepAliveHelper.isForegroundServiceRecentlyActive(context) }
+    val exactAlarmEnabled = remember(refreshKey) {
+        (context.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
+    }
 
     // 短信权限申请（结果由 ON_RESUME refreshKey 自动刷新状态）
     val smsPermissionLauncher = rememberLauncherForActivityResult(
@@ -105,8 +124,40 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
     var showAlipayImportSheet by remember { mutableStateOf(false) }
     var showCategoryManage by remember { mutableStateOf(false) }
     var showSavingsGoal by remember { mutableStateOf(false) }
+    var showDailyLimit by remember { mutableStateOf(false) }
     var showDefaultCategory by remember { mutableStateOf(false) }
     var showAdBlock by remember { mutableStateOf(false) }
+    var showCustomMatch by remember { mutableStateOf(false) }
+    var showDiagLog by remember { mutableStateOf(false) }
+    var diagLogContent by remember { mutableStateOf("") }
+    var showSmsWindowDialog by remember { mutableStateOf(false) }
+
+    // 备份/恢复（文件级，扛卸载重装）
+    var showRestoreConfirm by remember { mutableStateOf(false) }
+    val backupOpState by viewModel.backupOpState.collectAsStateWithLifecycle()
+
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let { viewModel.backupToUri(it) } }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.restoreFromUri(it) } }
+
+    // 备份/恢复结果：Toast 提示后复位
+    LaunchedEffect(backupOpState) {
+        when (val s = backupOpState) {
+            is BackupOpState.Success -> {
+                Toast.makeText(context, s.message, Toast.LENGTH_LONG).show()
+                viewModel.resetBackupOpState()
+            }
+            is BackupOpState.Error -> {
+                Toast.makeText(context, s.message, Toast.LENGTH_LONG).show()
+                viewModel.resetBackupOpState()
+            }
+            else -> {}
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -258,11 +309,34 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
                     DividerLine()
                     StatusRow(
                         icon = Icons.Rounded.Bolt,
+                        title = stringResource(R.string.settings_exact_alarm),
+                        desc = stringResource(R.string.settings_exact_alarm_desc),
+                        enabled = exactAlarmEnabled,
+                        enabledText = stringResource(R.string.settings_exact_alarm_on),
+                        disabledText = stringResource(R.string.settings_exact_alarm_off),
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                                        .setData(android.net.Uri.parse("package:${context.packageName}"))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }.onFailure {
+                                _root_ide_package_.com.xl.bill.mint.util.PermissionChecker.openBatteryOptimizationSettings(
+                                    context
+                                )
+                            }
+                        }
+                    )
+                    DividerLine()
+                    StatusRow(
+                        icon = Icons.Rounded.Bolt,
                         title = stringResource(R.string.settings_rom_autostart),
                         desc = stringResource(R.string.settings_rom_autostart_desc),
                         enabled = false,
                         enabledText = "",
                         disabledText = stringResource(R.string.settings_rom_autostart_open),
+                        neutral = true,
                         onClick = {
                             if (!_root_ide_package_.com.xl.bill.mint.util.RomGuideHelper.openAutostartSettings(
                                     context
@@ -305,6 +379,38 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
                             modifier = Modifier.weight(1f)
                         )
                     }
+                    DividerLine()
+                    // 诊断日志：漏记时先看这里（本地记录，不上传）
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                diagLogContent = DiagLog.readAll()
+                                showDiagLog = true
+                            }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_diag_log),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_diag_log_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -338,6 +444,35 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
                                 )
                             )
                         }
+                    }
+                    DividerLine()
+                    // 短信去重窗口（短信延迟超过窗口可能双记，可调大）
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showSmsWindowDialog = true }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_sms_window),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_sms_window_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.settings_sms_window_value, smsWindowMs / 1000),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
@@ -402,6 +537,39 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
                             )
                             Text(
                                 text = stringResource(R.string.settings_ad_block_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "›",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    DividerLine()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCustomMatch = true }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Tag,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_custom_match),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_custom_match_desc),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -479,6 +647,49 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
                             )
                             Text(
                                 text = savingsGoalSubtitle(savingsGoal),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "›",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+
+        // 每日限额
+        item {
+            SectionTitle(stringResource(R.string.daily_limit))
+        }
+        item {
+            _root_ide_package_.com.xl.bill.mint.ui.components.GlassCard {
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 6.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDailyLimit = true }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Speed,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.daily_limit),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = dailyLimitSubtitle(dailyLimit),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -681,6 +892,64 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
                         }
                     }
                     DividerLine()
+                    // 备份到文件（SAF 选择器，落下载目录/云盘，卸载不丢）
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { backupLauncher.launch(BackupFileManager.defaultBackupName()) }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Download,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = stringResource(R.string.settings_backup),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_backup_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    DividerLine()
+                    // 从文件恢复（先确认，再选文件）
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showRestoreConfirm = true }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Upload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = stringResource(R.string.settings_restore),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_restore_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    DividerLine()
                     // 清空全部账单
                     Row(
                         modifier = Modifier
@@ -757,6 +1026,126 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
         )
     }
 
+    if (showSmsWindowDialog) {
+        val options = listOf(3_000L, 5_000L, 10_000L, 30_000L, 60_000L)
+        AlertDialog(
+            onDismissRequest = { showSmsWindowDialog = false },
+            title = { Text(stringResource(R.string.settings_sms_window_title)) },
+            text = {
+                Column {
+                    options.forEach { ms ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setSmsWindowMs(ms)
+                                    showSmsWindowDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_sms_window_value, ms / 1000),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (ms == smsWindowMs) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onBackground,
+                                fontWeight = if (ms == smsWindowMs) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (ms == smsWindowMs) {
+                                Text(
+                                    text = "✓",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSmsWindowDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+            shape = MaterialTheme.shapes.extraLarge
+        )
+    }
+
+    if (showDiagLog) {
+        AlertDialog(
+            onDismissRequest = { showDiagLog = false },
+            title = { Text(stringResource(R.string.diag_dialog_title)) },
+            text = {
+                if (diagLogContent.isBlank()) {
+                    Text(stringResource(R.string.diag_empty))
+                } else {
+                    SelectionContainer {
+                        Text(
+                            text = diagLogContent,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier
+                                .height(320.dp)
+                                .verticalScroll(rememberScrollState())
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                context.getString(R.string.diag_share_title) + "\n\n" + diagLogContent
+                            )
+                        }
+                        context.startActivity(Intent.createChooser(send, null))
+                    }
+                ) {
+                    Text(stringResource(R.string.diag_share))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        DiagLog.clear()
+                        diagLogContent = ""
+                    }
+                ) {
+                    Text(stringResource(R.string.diag_clear), color = ExpenseRose)
+                }
+            },
+            shape = MaterialTheme.shapes.extraLarge
+        )
+    }
+
+    if (showRestoreConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = { Text(stringResource(R.string.restore_confirm_title)) },
+            text = { Text(stringResource(R.string.restore_confirm_msg)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRestoreConfirm = false
+                        restoreLauncher.launch(arrayOf("application/json"))
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm), color = ExpenseRose)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+            shape = MaterialTheme.shapes.extraLarge
+        )
+    }
+
     if (showSendSheet) {
         _root_ide_package_.com.xl.bill.mint.ui.components.TransferSendSheet(onDismiss = {
             showSendSheet = false
@@ -788,6 +1177,17 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
         )
     }
 
+    if (showDailyLimit) {
+        DailyLimitSheet(
+            onDismiss = { showDailyLimit = false },
+            initialLimit = dailyLimit,
+            onSave = { fen ->
+                viewModel.setDailyLimit(fen)
+                showDailyLimit = false
+            }
+        )
+    }
+
     if (showDefaultCategory) {
         DefaultCategorySheet(
             defaults = categoryDefaults,
@@ -800,6 +1200,24 @@ fun SettingsScreen(viewModel: com.xl.bill.mint.ui.viewmodel.SettingsViewModel = 
         AdBlockSheet(
             onDismiss = { showAdBlock = false }
         )
+    }
+
+    if (showCustomMatch) {
+        CustomMatchSheet(
+            onDismiss = { showCustomMatch = false }
+        )
+    }
+
+    // 备份/恢复进行中：全屏遮罩禁止操作
+    if (backupOpState is BackupOpState.Busy) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
     }
 }
 
@@ -842,6 +1260,13 @@ private fun savingsGoalSubtitle(goal: com.xl.bill.mint.data.repo.SettingsReposit
     return stringResource(R.string.savings_summary_goal, _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(total)) + monthlyPart
 }
 
+/** 每日限额摘要：未设置显示引导文案；已设置显示「¥x / 天」 */
+@Composable
+private fun dailyLimitSubtitle(limit: Long?): String {
+    val fen = limit ?: return stringResource(R.string.daily_limit_desc)
+    return stringResource(R.string.daily_limit_value, _root_ide_package_.com.xl.bill.mint.util.MoneyFormatter.yuan(fen))
+}
+
 @Composable
 private fun SectionTitle(text: String) {
     Text(
@@ -860,7 +1285,8 @@ private fun StatusRow(
     enabled: Boolean,
     enabledText: String,
     disabledText: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    neutral: Boolean = false
 ) {
     Row(
         modifier = Modifier
@@ -893,7 +1319,11 @@ private fun StatusRow(
             text = if (enabled) enabledText else disabledText,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = if (enabled) IncomeMint else ExpenseRose
+            color = when {
+                neutral -> MaterialTheme.colorScheme.primary
+                enabled -> IncomeMint
+                else -> ExpenseRose
+            }
         )
     }
 }

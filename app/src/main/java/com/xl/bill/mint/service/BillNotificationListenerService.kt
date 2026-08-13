@@ -1,9 +1,13 @@
 package com.xl.bill.mint.service
 
 import android.app.Notification
-import android.os.Bundle
+import android.content.ComponentName
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import com.xl.bill.mint.parser.PaymentApps
+import com.xl.bill.mint.util.DiagEvent
+import com.xl.bill.mint.util.DiagLog
+import com.xl.bill.mint.util.KeepAliveHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,9 +23,12 @@ import kotlinx.coroutines.launch
  *
  * 仅处理白名单（支付宝/微信/银行）通知，其余通知直接忽略，不解析不落库。
  *
- * 文本提取覆盖 title/text/bigText/subText/textLines 全字段：
+ * 文本提取覆盖 title/text/bigText/subText/textLines 全字段 + MessagingStyle 消息体：
  * 微信「支付凭证」类通知的金额常位于 BIG_TEXT 或 TEXT_LINES（展开式通知），
  * 只取 EXTRA_TEXT 会漏掉金额导致无法记账。
+ *
+ * 断连自救：onListenerDisconnected 记录持久化标记 + requestRebind；
+ * 心跳/进程拉起时由 [KeepAliveHelper.rebindNotificationListenerIfNeeded] 执行组件 toggle 重绑。
  */
 class BillNotificationListenerService : android.service.notification.NotificationListenerService() {
 
@@ -31,13 +38,16 @@ class BillNotificationListenerService : android.service.notification.Notificatio
         super.onNotificationPosted(sbn)
         val notification = sbn?.notification ?: return
         val pkg = sbn.packageName
-        if (!_root_ide_package_.com.xl.bill.mint.parser.PaymentApps.isSupported(pkg)) return
+        if (!PaymentApps.isSupported(pkg)) return
 
-        val extras = notification.extras
-        val (title, text) = extractTitleAndText(extras)
-        if (title == null && text == null) return
+        val (title, text) = extractTitleAndText(notification)
+        if (title == null && text == null) {
+            DiagLog.log(DiagEvent.NLS_DROPPED_EMPTY, "pkg=$pkg")
+            return
+        }
 
         Log.d(TAG, "收到通知 pkg=$pkg title=$title text=$text")
+        DiagLog.log(DiagEvent.NLS_RECEIVED, "pkg=$pkg title=${title?.take(30)} text=${text?.take(30)}")
 
         val time = notification.`when`.takeIf { it > 0 } ?: System.currentTimeMillis()
         scope.launch {
@@ -54,9 +64,24 @@ class BillNotificationListenerService : android.service.notification.Notificatio
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.d(TAG, "通知监听服务已连接（系统绑定成功）")
+        KeepAliveHelper.markNlsConnected(this)
+        DiagLog.log(DiagEvent.NLS_CONNECTED)
     }
 
-    private fun extractTitleAndText(extras: Bundle): Pair<String?, String?> {
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        // ROM 杀进程/收权导致的断连：记录持久化标记（进程死了标记不丢），
+        // 并立即请求系统重绑；心跳与进程拉起时再兜底一次组件 toggle
+        Log.d(TAG, "通知监听服务已断开（系统解绑）")
+        KeepAliveHelper.markNlsDisconnected(this)
+        DiagLog.log(DiagEvent.NLS_DISCONNECTED)
+        runCatching {
+            requestRebind(ComponentName(this, BillNotificationListenerService::class.java))
+        }
+    }
+
+    private fun extractTitleAndText(notification: Notification): Pair<String?, String?> {
+        val extras = notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim()
             ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()?.trim()
 
@@ -69,6 +94,16 @@ class BillNotificationListenerService : android.service.notification.Notificatio
             ?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
         extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach { line ->
             line?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
+        }
+        // MessagingStyle 通知：金额可能在消息体里（EXTRA_TEXT 为空时兜底）。
+        // 注：android-35 stub 未含 extractMessagingStyleFromNotification，直接读
+        // EXTRA_MESSAGES Parcelable 数组并转型 Message 取 text。
+        @Suppress("DEPRECATION")
+        runCatching {
+            extras.getParcelableArray(Notification.EXTRA_MESSAGES)?.forEach { p ->
+                (p as? Notification.MessagingStyle.Message)?.text?.toString()?.trim()
+                    ?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
+            }
         }
 
         return title?.takeIf { it.isNotEmpty() } to parts.joinToString("\n").ifEmpty { null }

@@ -11,6 +11,7 @@ import com.xl.bill.mint.billimport.DuplicatePolicy
 import com.xl.bill.mint.di.ServiceLocator
 import com.xl.bill.mint.parser.BillImportRow
 import com.xl.bill.mint.parser.Channel
+import com.xl.bill.mint.parser.ImportDuplicateDetector
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,7 +25,12 @@ sealed interface BillImportUiState {
     data object Idle : BillImportUiState
     /** 解析快，单阶段无进度 */
     data object Parsing : BillImportUiState
-    data class Preview(val rows: List<BillImportRow>, val unrecognizedCount: Int) : BillImportUiState
+    /** suspiciousKeys：与已自动记账记录「时间分钟级+金额+方向」相近的疑似重复行（跨来源） */
+    data class Preview(
+        val rows: List<BillImportRow>,
+        val unrecognizedCount: Int,
+        val suspiciousKeys: Set<String> = emptySet()
+    ) : BillImportUiState
     /** 检测到重复记录，等待用户选择覆盖/忽略（rows 暂存于 pendingRows） */
     data class ConfirmDuplicate(val dupCount: Int, val newCount: Int) : BillImportUiState
     /** 写入中（单事务不可分块，UI 用不确定进度遮罩） */
@@ -49,6 +55,14 @@ class BillImportViewModel(
     /** 查重结果缓存：confirmImport 检测出的已存在 key 集合，重复确认后传给 commit 复用（避免二次查库） */
     private var pendingDupKeys: Set<String>? = null
 
+    /** 是否跳过「可能重复」行（与已自动记账记录时间/金额/方向相近），默认开 */
+    private val _skipSuspicious = MutableStateFlow(true)
+    val skipSuspicious: StateFlow<Boolean> = _skipSuspicious.asStateFlow()
+
+    fun setSkipSuspicious(enabled: Boolean) {
+        _skipSuspicious.value = enabled
+    }
+
     /** 解析所选文件（按来源分流）→ Preview（或 Error） */
     fun analyze(uri: Uri) {
         activeJob?.cancel()
@@ -61,7 +75,8 @@ class BillImportViewModel(
                 if (rows.isEmpty()) {
                     _state.value = BillImportUiState.Error(emptyMessage)
                 } else {
-                    _state.value = BillImportUiState.Preview(rows, result.unrecognizedCount)
+                    val suspiciousKeys = detectSuspicious(rows)
+                    _state.value = BillImportUiState.Preview(rows, result.unrecognizedCount, suspiciousKeys)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -73,6 +88,28 @@ class BillImportViewModel(
         }
     }
 
+    /**
+     * 疑似重复检测（跨来源）：导入行按 (金额, 方向) 分组，每组查既有自动记账记录
+     * （source != 'import'）[min-60s, max+60s] 窗口 → 时间分钟级匹配的行标记为可能重复。
+     */
+    private suspend fun detectSuspicious(rows: List<BillImportRow>): Set<String> {
+        val repo = ServiceLocator.transactionRepository
+        val suspicious = mutableSetOf<String>()
+        rows.groupBy { it.amountFen to it.type }.forEach { (key, group) ->
+            val fromTs = group.minOf { it.occurredAt } - ImportDuplicateDetector.WINDOW_MS
+            val toTs = group.maxOf { it.occurredAt } + ImportDuplicateDetector.WINDOW_MS
+            val candidates = repo.findSuspectedDuplicateCandidates(key.first, key.second, fromTs, toTs)
+            if (candidates.isEmpty()) return@forEach
+            val candidateTimes = candidates.map { it.occurredAt }
+            group.forEach { row ->
+                if (ImportDuplicateDetector.isSuspected(row.occurredAt, candidateTimes)) {
+                    suspicious += row.notificationKey
+                }
+            }
+        }
+        return suspicious
+    }
+
     /** 预览中删除一条（按 notificationKey 过滤） */
     fun deleteRow(key: String) {
         val cur = _state.value as? BillImportUiState.Preview ?: return
@@ -80,25 +117,36 @@ class BillImportViewModel(
     }
 
     /**
-     * 确认导入：先检测重复（不落库）→
+     * 确认导入：先按「跳过可能重复」开关过滤疑似行 → 再检测精确重复（key）→
      * 无重复直接导入；有重复进入 [BillImportUiState.ConfirmDuplicate] 等待用户选择覆盖/忽略。
      */
     fun confirmImport() {
         if (activeJob?.isActive == true) return // 查重阶段 state 仍是 Preview，防连点重入
         val cur = _state.value as? BillImportUiState.Preview ?: return
         if (cur.rows.isEmpty()) return
-        val rows = cur.rows
+        val totalRows = cur.rows
         activeJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val dupKeys = ServiceLocator.billImportService.detectDuplicates(rows)
+                // 疑似重复行：按开关过滤（默认跳过，保留已自动记账的那条）
+                val toImport = if (_skipSuspicious.value && cur.suspiciousKeys.isNotEmpty()) {
+                    totalRows.filter { it.notificationKey !in cur.suspiciousKeys }
+                } else {
+                    totalRows
+                }
+                if (toImport.isEmpty()) {
+                    // 全部被疑似重复跳过
+                    _state.value = BillImportUiState.Success(0, totalRows.size)
+                    return@launch
+                }
+                val dupKeys = ServiceLocator.billImportService.detectDuplicates(toImport)
                 pendingDupKeys = dupKeys
                 if (dupKeys.isEmpty()) {
-                    executeCommit(rows, DuplicatePolicy.SKIP, dupKeys)
+                    executeCommit(toImport, totalRows.size, DuplicatePolicy.SKIP, dupKeys)
                 } else {
-                    pendingRows = rows
+                    pendingRows = toImport
                     _state.value = BillImportUiState.ConfirmDuplicate(
                         dupCount = dupKeys.size,
-                        newCount = rows.size - dupKeys.size
+                        newCount = toImport.size - dupKeys.size
                     )
                 }
             } catch (e: CancellationException) {
@@ -117,18 +165,23 @@ class BillImportViewModel(
         pendingRows = null
         pendingDupKeys = null
         activeJob = viewModelScope.launch(Dispatchers.IO) {
-            executeCommit(rows, policy, dupKeys)
+            executeCommit(rows, rows.size, policy, dupKeys)
         }
     }
 
-    /** 执行入库 → Importing → Success/Error */
-    private suspend fun executeCommit(rows: List<BillImportRow>, policy: DuplicatePolicy, knownExisting: Set<String>?) {
+    /** 执行入库 → Importing → Success/Error；skipped = 全量行 - 实际插入（含疑似跳过 + key 精确重复跳过） */
+    private suspend fun executeCommit(
+        rows: List<BillImportRow>,
+        totalRows: Int,
+        policy: DuplicatePolicy,
+        knownExisting: Set<String>?
+    ) {
         _state.value = BillImportUiState.Importing
         try {
             val result = ServiceLocator.billImportService.commit(rows, source, policy, knownExisting)
             pendingRows = null
             pendingDupKeys = null
-            _state.value = BillImportUiState.Success(result.inserted, result.skipped)
+            _state.value = BillImportUiState.Success(result.inserted, totalRows - result.inserted)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

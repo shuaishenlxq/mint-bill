@@ -123,6 +123,10 @@ class StatisticsViewModel : ViewModel() {
             )
         )
 
+    /** 每日限额（分，null=未设置；日视图「超额」列数据源，未设置超额恒为 0） */
+    val dailyLimit: StateFlow<Long?> = settingsRepo.dailyLimit
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** 日收支列表：仅「日」周期下按锚点月份聚合（有记录的日期，最新在前），其余周期为空 */
     val dailyList: StateFlow<List<com.xl.bill.mint.util.StatisticsCalculator.DayBalance>> =
         combine(transactions, period, anchor) { txs, p, a ->

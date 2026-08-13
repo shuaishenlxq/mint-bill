@@ -40,11 +40,11 @@ object ServiceLocator {
     }
 
     val exportManager: com.xl.bill.mint.transfer.ExportManager by lazy {
-        _root_ide_package_.com.xl.bill.mint.transfer.ExportManager(appDatabase)
+        _root_ide_package_.com.xl.bill.mint.transfer.ExportManager(appDatabase, settingsRepository)
     }
 
     val importManager: com.xl.bill.mint.transfer.ImportManager by lazy {
-        _root_ide_package_.com.xl.bill.mint.transfer.ImportManager(appDatabase)
+        _root_ide_package_.com.xl.bill.mint.transfer.ImportManager(appDatabase, settingsRepository)
     }
 
     /** 微信账单 Excel 导入：解析预览与批量入库编排 */

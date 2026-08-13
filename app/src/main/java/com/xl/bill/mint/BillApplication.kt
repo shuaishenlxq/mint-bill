@@ -28,6 +28,11 @@ class BillApplication : android.app.Application() {
         // 预热数据库（触发 SQLCipher 明文→加密迁移，在 IO 线程执行，避免主线程首次访问阻塞）
         appScope.launch { _root_ide_package_.com.xl.bill.mint.di.ServiceLocator.appDatabase }
         appScope.launch { seedDefaults() }
+        // 进程被 NLS 绑定/广播/闹钟拉起时重挂心跳计时链（MIUI 杀进程会清闹钟，
+        // 不重挂则断链后只能等用户手动开 App）；后台上下文不启动 FGS，由闹钟豁免链负责
+        _root_ide_package_.com.xl.bill.mint.util.KeepAliveHelper.rearmTimers(this)
+        // NLS 断连自救：上次运行观测到绑定断开时，进程拉起即触发一次组件 toggle 重绑
+        _root_ide_package_.com.xl.bill.mint.util.KeepAliveHelper.rebindNotificationListenerIfNeeded(this)
     }
 
     private fun ensureNotificationChannels() {

@@ -40,39 +40,105 @@ class Deduplicator(private val windowMs: Long = 120_000L) {
 }
 
 /**
- * 跨来源短窗口去重：同一笔支付被多个 App 同时通知（如微信支付从银行卡扣款 →
- * 微信「支付凭证」通知 + 银行 App「扣款提醒」通知）时的二次防重。
+ * 通知 key 去重（内存 120s）：拦截「同一通知的重复投递」（ROM 重放/系统重发）。
  *
- * 与 [Deduplicator] 的区别：key = 金额|方向，**不含渠道/商户/时间**——
- * 微信与银行 App 的 [Channel] 不同、商户提取结果必然错位（银行通知几乎提取不到商户），
- * 直接拼指纹永远命中不了；时间维度由窗口控制（微信与银行通知几乎同时到达）。
+ * 关键：**仅当 key 相同且内容一致（金额相同、occurredAt 差 ≤ 60s）才判为重复**。
+ * 原因：部分支付 App 用固定 notification id/tag 发「支付凭证」覆盖式通知，
+ * 导致不同笔支付的通知 key（sbn.key）**完全相同**——若只看 key 不看内容，
+ * 1 分钟内（甚至永远，叠加 DB 唯一索引）只有第一笔能记，金额不同的多笔也全漏。
  *
- * 商户仅作**豁免条件**：窗口内同金额同方向时，若双方商户均非空且不同，
- * 视为不同交易放行（避免误杀 3 秒内跨渠道同金额不同商户的真实多笔消费）。
+ * 语义：
+ * - 同 key + 同金额 + 时间差 ≤ 60s → 真重放 → 拦截；
+ * - 同 key 但金额不同或时间差 > 60s → key 被复用 = 新交易 → 放行并更新；
+ * - 窗口过期（> windowMs 无同 key 记录）→ 放行。
  */
-class CrossSourceDedup(private val windowMs: Long = 3_000L) {
+class KeyDeduper(private val windowMs: Long = 120_000L) {
 
-    private data class Entry(val channel: Channel, val merchant: String?, val ts: Long)
+    companion object {
+        /** 同 key 下「同笔」的时间容差：occurredAt 差超过该值视为另一笔交易 */
+        const val SAME_TX_TIME_TOLERANCE_MS = 60_000L
+    }
+
+    private data class Entry(val amount: Long, val occurredAt: Long, val ts: Long)
 
     private val map = HashMap<String, Entry>()
 
-    /** 记录一笔；若 3 秒窗口内已存在同金额同方向的「同一笔」交易返回 false（拦截） */
+    /** @return true 放行（并记录）；false 拦截（同 key 同内容的重放） */
     @Synchronized
-    fun tryAdd(channel: Channel, amount: Long, type: Int, merchant: String?): Boolean {
+    fun tryAdd(key: String, amount: Long, occurredAt: Long): Boolean {
         val now = System.currentTimeMillis()
-        val key = "$amount|$type"
         val prev = map[key]
         if (prev != null && now - prev.ts <= windowMs) {
-            val bothMerchants = prev.merchant != null && merchant != null
-            if (bothMerchants && prev.merchant != merchant) {
-                // 商户双非空且不同 → 不同交易，更新记录并放行
-                map[key] = Entry(channel, merchant, now)
-                return true
-            }
-            // 同一笔（跨渠道 / 商户缺失 / 商户相同）→ 拦截
+            val sameTx = prev.amount == amount &&
+                kotlin.math.abs(prev.occurredAt - occurredAt) <= SAME_TX_TIME_TOLERANCE_MS
+            if (sameTx) return false
+            // 同 key 内容不同 → id 复用，新交易
+        }
+        map[key] = Entry(amount, occurredAt, now)
+        return true
+    }
+
+    @Synchronized
+    fun clear() {
+        map.clear()
+    }
+}
+
+/** 记账数据源类型：决定模糊指纹去重是否互拦（仅通知↔无障碍互拦，其余放行）。 */
+enum class BillSource {
+    /** 通知监听（NLS），notificationKey = 系统 sbn.key */
+    NOTIFICATION,
+
+    /** 无障碍读屏（兜底），notificationKey = acc-... */
+    ACCESSIBILITY,
+
+    /** 短信，notificationKey = sms-... */
+    SMS
+}
+
+/** BillSource → DB source 列取值（与 CrossSourceResolver.SOURCE_* 常量一致） */
+fun BillSource.toDbString(): String = when (this) {
+    BillSource.NOTIFICATION -> CrossSourceResolver.SOURCE_NOTIFICATION
+    BillSource.ACCESSIBILITY -> CrossSourceResolver.SOURCE_ACCESSIBILITY
+    BillSource.SMS -> CrossSourceResolver.SOURCE_SMS
+}
+
+/**
+ * 异源模糊指纹去重（内存 120s）。
+ *
+ * 用途：防「同一笔被同渠道的双通道重复记」——典型场景是微信支付通知先记、
+ * 用户随后打开转账详情页由无障碍再读同一笔。此时两条记录 channel 相同、
+ * key 必然不同（sbn.key vs acc-...），只能用「渠道|金额|方向|商户|分钟」模糊匹配。
+ *
+ * 关键约束：**仅 NOTIFICATION ↔ ACCESSIBILITY 互拦**。同源（通知 vs 通知、
+ * 无障碍 vs 无障碍）一律放行——否则 1 分钟内多笔同金额真实支付会被误杀
+ * （商户为 null 的微信扫码场景尤为常见）；**通知 vs 短信 / 无障碍 vs 短信
+ * 也不互拦**——短信归银行后银行短信 channel=BANK 与银行 App 通知同渠道，
+ * 若互拦会导致银行短信被内存指纹层误拦（同笔合并交给 DB 跨源层，
+ * 那里按 (channel, source) 判定，短信优先）。
+ *
+ * 同 key 的重复投递由 [Deduplicator]（notificationKey）与 DB 唯一索引兜底。
+ * 商户豁免天然生效：商户不同 → 指纹本身不同 → 不命中。
+ */
+class FingerprintDeduper(private val windowMs: Long = 120_000L) {
+
+    private data class Entry(val source: BillSource, val ts: Long)
+
+    private val map = HashMap<String, Entry>()
+
+    /**
+     * @return true 放行（并记录）；false 拦截（窗口内已有「通知↔无障碍」异源同指纹记录）
+     */
+    @Synchronized
+    fun tryAdd(fingerprint: String, source: BillSource): Boolean {
+        val now = System.currentTimeMillis()
+        val prev = map[fingerprint]
+        val notifAccPair = (source == BillSource.NOTIFICATION && prev?.source == BillSource.ACCESSIBILITY) ||
+            (source == BillSource.ACCESSIBILITY && prev?.source == BillSource.NOTIFICATION)
+        if (prev != null && now - prev.ts <= windowMs && notifAccPair) {
             return false
         }
-        map[key] = Entry(channel, merchant, now)
+        map[fingerprint] = Entry(source, now)
         return true
     }
 
